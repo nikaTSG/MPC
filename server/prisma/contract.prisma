@@ -1,0 +1,6 @@
+// use prisma-8
+
+model Vessel {
+  id   Int    @id @default(autoincrement())
+  name String
+}

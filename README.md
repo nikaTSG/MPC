@@ -1,3 +1,4 @@
 # MPC
 
-yello koukis vasiliki
+yello koukis && vasiliki 
+to settara magkes
