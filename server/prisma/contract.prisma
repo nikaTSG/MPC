@@ -1,6 +1,44 @@
 // use prisma-8
 
 model Vessel {
-  id   Int    @id @default(autoincrement())
-  name String
+  id                  Int      @id @default(autoincrement())
+
+  // Regulatory & Identification
+  imo                 String   @unique // 7-digit permanent hull ID (e.g. "9811000")
+  mmsi                String   @unique // 9-digit AIS transceiver ID
+  name                String
+  callSign            String?
+  flagState           String   // ISO 3166-1 alpha-2 code (e.g., "PA", "MH", "GR")
+
+  // Classification & Engineering (for Maintenance & Spare Parts)
+  vesselType          String   // "CONTAINER" | "BULK_CARRIER" | "TANKER" | "GENERAL_CARGO"
+  classSociety        String?  // e.g., "DNV", "ABS", "LR", "NK"
+  yearBuilt           Int
+  builder             String?  // Shipyard name
+  mainEngineModel     String?  // Crucial for spare parts matching (e.g., "MAN B&W 11G95ME-C9")
+
+  // Dimensions & Capacity (for Port Routing & Berthing Checks)
+  dwt                 Int      // Deadweight tonnage (metric tons)
+  grossTonnage        Int      // Gross tonnage (GT)
+  teuCapacity         Int?     // Twenty-foot Equivalent Units (null for non-container ships)
+  lengthOverall       Float    // LOA in meters
+  beam                Float    // Width in meters
+  maxDraught          Float    // Maximum depth below waterline in meters
+
+  // Live Telemetry & Voyage Status
+  operationalStatus   String   @default("AT_SEA") // "AT_SEA" | "IN_PORT" | "ANCHORED" | "DRYDOCK"
+  latitude            Float?
+  longitude           Float?
+  speedKnots          Float?   // Speed Over Ground (SOG)
+  heading             Float?   // Course in degrees (0-359)
+  destinationPortCode String?  // UN/LOCODE (e.g., "GRPIR", "SGSIN", "NLRTM")
+  eta                 DateTime?
+
+  // Timestamps
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @default(now()) @onUpdate(now())
+
+  @@index([vesselType])
+  @@index([operationalStatus])
+  @@index([destinationPortCode])
 }

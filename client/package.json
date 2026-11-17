@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev": "concurrently -n WEB,API -c cyan,blue \"vite\" \"npm run server\"",
+    "server": "cd ../server && npx tsx watch src/server.ts",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview"
