@@ -19,8 +19,9 @@ import type {
 } from '@prisma/orm-sqlite/contract/types';
 
 export type StorageHash =
-  StorageHashBase<'d8a34adb60b1c9845678c2b1f502ce82f3b39e3e53bbbde950b9330b82b5f151'>;
-export type ExecutionHash = ExecutionHashBase<string>;
+  StorageHashBase<'5c2bc9b355fe6aa93d44839a3d67960961f1f3dc34e075c3577d0d9733990257'>;
+export type ExecutionHash =
+  ExecutionHashBase<'fe0891fb2522e01ea6f15459d523cc8ad4b2f84cb045b9f875605dbb15fe9176'>;
 export type ProfileHash =
   ProfileHashBase<'260b8608d1aacaf1f690779a6cff39a12947c599597c5ba464ca75b9e775df53'>;
 
@@ -216,8 +217,32 @@ export type StorageColumnInputTypes = ColumnTypesFromStorage<
 
 export namespace Models {
   export type Vessel = {
+    beam: FieldOutputTypes['__unbound__']['Vessel']['beam'];
+    builder: FieldOutputTypes['__unbound__']['Vessel']['builder'];
+    callSign: FieldOutputTypes['__unbound__']['Vessel']['callSign'];
+    classSociety: FieldOutputTypes['__unbound__']['Vessel']['classSociety'];
+    createdAt: FieldOutputTypes['__unbound__']['Vessel']['createdAt'];
+    destinationPortCode: FieldOutputTypes['__unbound__']['Vessel']['destinationPortCode'];
+    dwt: FieldOutputTypes['__unbound__']['Vessel']['dwt'];
+    eta: FieldOutputTypes['__unbound__']['Vessel']['eta'];
+    flagState: FieldOutputTypes['__unbound__']['Vessel']['flagState'];
+    grossTonnage: FieldOutputTypes['__unbound__']['Vessel']['grossTonnage'];
+    heading: FieldOutputTypes['__unbound__']['Vessel']['heading'];
     id: FieldOutputTypes['__unbound__']['Vessel']['id'];
+    imo: FieldOutputTypes['__unbound__']['Vessel']['imo'];
+    latitude: FieldOutputTypes['__unbound__']['Vessel']['latitude'];
+    lengthOverall: FieldOutputTypes['__unbound__']['Vessel']['lengthOverall'];
+    longitude: FieldOutputTypes['__unbound__']['Vessel']['longitude'];
+    mainEngineModel: FieldOutputTypes['__unbound__']['Vessel']['mainEngineModel'];
+    maxDraught: FieldOutputTypes['__unbound__']['Vessel']['maxDraught'];
+    mmsi: FieldOutputTypes['__unbound__']['Vessel']['mmsi'];
     name: FieldOutputTypes['__unbound__']['Vessel']['name'];
+    operationalStatus: FieldOutputTypes['__unbound__']['Vessel']['operationalStatus'];
+    speedKnots: FieldOutputTypes['__unbound__']['Vessel']['speedKnots'];
+    teuCapacity: FieldOutputTypes['__unbound__']['Vessel']['teuCapacity'];
+    updatedAt: FieldOutputTypes['__unbound__']['Vessel']['updatedAt'];
+    vesselType: FieldOutputTypes['__unbound__']['Vessel']['vesselType'];
+    yearBuilt: FieldOutputTypes['__unbound__']['Vessel']['yearBuilt'];
     readonly [RelationKeys]?: never;
   };
 }
@@ -246,6 +271,73 @@ type ContractBase = Omit<
           readonly table: {
             readonly Vessel: {
               columns: {
+                readonly beam: {
+                  readonly dataType: 'sqlite/real';
+                  readonly codecId: 'sqlite/real@1';
+                  readonly nullable: false;
+                  readonly many: false;
+                };
+                readonly builder: {
+                  readonly dataType: 'sqlite/text';
+                  readonly codecId: 'sqlite/text@1';
+                  readonly nullable: true;
+                  readonly many: false;
+                };
+                readonly callSign: {
+                  readonly dataType: 'sqlite/text';
+                  readonly codecId: 'sqlite/text@1';
+                  readonly nullable: true;
+                  readonly many: false;
+                };
+                readonly classSociety: {
+                  readonly dataType: 'sqlite/text';
+                  readonly codecId: 'sqlite/text@1';
+                  readonly nullable: true;
+                  readonly many: false;
+                };
+                readonly createdAt: {
+                  readonly dataType: 'sqlite/datetime';
+                  readonly codecId: 'sqlite/datetime@1';
+                  readonly nullable: false;
+                  readonly default: { readonly kind: 'function'; readonly expression: 'now()' };
+                  readonly many: false;
+                };
+                readonly destinationPortCode: {
+                  readonly dataType: 'sqlite/text';
+                  readonly codecId: 'sqlite/text@1';
+                  readonly nullable: true;
+                  readonly many: false;
+                };
+                readonly dwt: {
+                  readonly dataType: 'sqlite/integer';
+                  readonly codecId: 'sqlite/integer@1';
+                  readonly nullable: false;
+                  readonly many: false;
+                };
+                readonly eta: {
+                  readonly dataType: 'sqlite/datetime';
+                  readonly codecId: 'sqlite/datetime@1';
+                  readonly nullable: true;
+                  readonly many: false;
+                };
+                readonly flagState: {
+                  readonly dataType: 'sqlite/text';
+                  readonly codecId: 'sqlite/text@1';
+                  readonly nullable: false;
+                  readonly many: false;
+                };
+                readonly grossTonnage: {
+                  readonly dataType: 'sqlite/integer';
+                  readonly codecId: 'sqlite/integer@1';
+                  readonly nullable: false;
+                  readonly many: false;
+                };
+                readonly heading: {
+                  readonly dataType: 'sqlite/real';
+                  readonly codecId: 'sqlite/real@1';
+                  readonly nullable: true;
+                  readonly many: false;
+                };
                 readonly id: {
                   readonly dataType: 'sqlite/integer';
                   readonly codecId: 'sqlite/integer@1';
@@ -256,16 +348,121 @@ type ContractBase = Omit<
                   };
                   readonly many: false;
                 };
+                readonly imo: {
+                  readonly dataType: 'sqlite/text';
+                  readonly codecId: 'sqlite/text@1';
+                  readonly nullable: false;
+                  readonly many: false;
+                };
+                readonly latitude: {
+                  readonly dataType: 'sqlite/real';
+                  readonly codecId: 'sqlite/real@1';
+                  readonly nullable: true;
+                  readonly many: false;
+                };
+                readonly lengthOverall: {
+                  readonly dataType: 'sqlite/real';
+                  readonly codecId: 'sqlite/real@1';
+                  readonly nullable: false;
+                  readonly many: false;
+                };
+                readonly longitude: {
+                  readonly dataType: 'sqlite/real';
+                  readonly codecId: 'sqlite/real@1';
+                  readonly nullable: true;
+                  readonly many: false;
+                };
+                readonly mainEngineModel: {
+                  readonly dataType: 'sqlite/text';
+                  readonly codecId: 'sqlite/text@1';
+                  readonly nullable: true;
+                  readonly many: false;
+                };
+                readonly maxDraught: {
+                  readonly dataType: 'sqlite/real';
+                  readonly codecId: 'sqlite/real@1';
+                  readonly nullable: false;
+                  readonly many: false;
+                };
+                readonly mmsi: {
+                  readonly dataType: 'sqlite/text';
+                  readonly codecId: 'sqlite/text@1';
+                  readonly nullable: false;
+                  readonly many: false;
+                };
                 readonly name: {
                   readonly dataType: 'sqlite/text';
                   readonly codecId: 'sqlite/text@1';
                   readonly nullable: false;
                   readonly many: false;
                 };
+                readonly operationalStatus: {
+                  readonly dataType: 'sqlite/text';
+                  readonly codecId: 'sqlite/text@1';
+                  readonly nullable: false;
+                  readonly default: {
+                    readonly kind: 'literal';
+                    readonly value: DefaultLiteralValue<'sqlite/text@1', 'AT_SEA'>;
+                  };
+                  readonly many: false;
+                };
+                readonly speedKnots: {
+                  readonly dataType: 'sqlite/real';
+                  readonly codecId: 'sqlite/real@1';
+                  readonly nullable: true;
+                  readonly many: false;
+                };
+                readonly teuCapacity: {
+                  readonly dataType: 'sqlite/integer';
+                  readonly codecId: 'sqlite/integer@1';
+                  readonly nullable: true;
+                  readonly many: false;
+                };
+                readonly updatedAt: {
+                  readonly dataType: 'sqlite/datetime';
+                  readonly codecId: 'sqlite/datetime@1';
+                  readonly nullable: false;
+                  readonly default: { readonly kind: 'function'; readonly expression: 'now()' };
+                  readonly many: false;
+                };
+                readonly vesselType: {
+                  readonly dataType: 'sqlite/text';
+                  readonly codecId: 'sqlite/text@1';
+                  readonly nullable: false;
+                  readonly many: false;
+                };
+                readonly yearBuilt: {
+                  readonly dataType: 'sqlite/integer';
+                  readonly codecId: 'sqlite/integer@1';
+                  readonly nullable: false;
+                  readonly many: false;
+                };
               };
               primaryKey: { readonly columns: readonly ['id'] };
-              uniques: readonly [];
-              indexes: readonly [];
+              uniques: readonly [
+                { readonly columns: readonly ['imo'] },
+                { readonly columns: readonly ['mmsi'] },
+              ];
+              indexes: readonly [
+                {
+                  readonly name: 'Vessel_destinationPortCode_idx_50918682';
+                  readonly prefix: 'Vessel_destinationPortCode_idx';
+                  readonly columns: readonly ['destinationPortCode'];
+                  readonly unique: false;
+                },
+                {
+                  readonly name: 'Vessel_operationalStatus_idx_5fecacdf';
+                  readonly prefix: 'Vessel_operationalStatus_idx';
+                  readonly columns: readonly ['operationalStatus'];
+                  readonly unique: false;
+                },
+                {
+                  readonly name: 'Vessel_vesselType_idx_130b23af';
+                  readonly prefix: 'Vessel_vesselType_idx';
+                  readonly columns: readonly ['vesselType'];
+                  readonly unique: false;
+                },
+              ];
               foreignKeys: readonly [];
             };
           };
@@ -287,13 +484,109 @@ type ContractBase = Omit<
         readonly models: {
           readonly Vessel: {
             readonly fields: {
+              readonly beam: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'sqlite/real@1' };
+              };
+              readonly builder: {
+                readonly nullable: true;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'sqlite/text@1' };
+              };
+              readonly callSign: {
+                readonly nullable: true;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'sqlite/text@1' };
+              };
+              readonly classSociety: {
+                readonly nullable: true;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'sqlite/text@1' };
+              };
+              readonly createdAt: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'sqlite/datetime@1' };
+              };
+              readonly destinationPortCode: {
+                readonly nullable: true;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'sqlite/text@1' };
+              };
+              readonly dwt: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'sqlite/integer@1' };
+              };
+              readonly eta: {
+                readonly nullable: true;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'sqlite/datetime@1' };
+              };
+              readonly flagState: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'sqlite/text@1' };
+              };
+              readonly grossTonnage: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'sqlite/integer@1' };
+              };
+              readonly heading: {
+                readonly nullable: true;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'sqlite/real@1' };
+              };
               readonly id: {
                 readonly nullable: false;
                 readonly type: { readonly kind: 'scalar'; readonly codecId: 'sqlite/integer@1' };
               };
+              readonly imo: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'sqlite/text@1' };
+              };
+              readonly latitude: {
+                readonly nullable: true;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'sqlite/real@1' };
+              };
+              readonly lengthOverall: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'sqlite/real@1' };
+              };
+              readonly longitude: {
+                readonly nullable: true;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'sqlite/real@1' };
+              };
+              readonly mainEngineModel: {
+                readonly nullable: true;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'sqlite/text@1' };
+              };
+              readonly maxDraught: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'sqlite/real@1' };
+              };
+              readonly mmsi: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'sqlite/text@1' };
+              };
               readonly name: {
                 readonly nullable: false;
                 readonly type: { readonly kind: 'scalar'; readonly codecId: 'sqlite/text@1' };
+              };
+              readonly operationalStatus: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'sqlite/text@1' };
+              };
+              readonly speedKnots: {
+                readonly nullable: true;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'sqlite/real@1' };
+              };
+              readonly teuCapacity: {
+                readonly nullable: true;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'sqlite/integer@1' };
+              };
+              readonly updatedAt: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'sqlite/datetime@1' };
+              };
+              readonly vesselType: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'sqlite/text@1' };
+              };
+              readonly yearBuilt: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'sqlite/integer@1' };
               };
             };
             readonly relations: Record<string, never>;
@@ -301,8 +594,32 @@ type ContractBase = Omit<
               readonly table: 'Vessel';
               readonly namespaceId: '__unbound__';
               readonly fields: {
+                readonly beam: { readonly column: 'beam' };
+                readonly builder: { readonly column: 'builder' };
+                readonly callSign: { readonly column: 'callSign' };
+                readonly classSociety: { readonly column: 'classSociety' };
+                readonly createdAt: { readonly column: 'createdAt' };
+                readonly destinationPortCode: { readonly column: 'destinationPortCode' };
+                readonly dwt: { readonly column: 'dwt' };
+                readonly eta: { readonly column: 'eta' };
+                readonly flagState: { readonly column: 'flagState' };
+                readonly grossTonnage: { readonly column: 'grossTonnage' };
+                readonly heading: { readonly column: 'heading' };
                 readonly id: { readonly column: 'id' };
+                readonly imo: { readonly column: 'imo' };
+                readonly latitude: { readonly column: 'latitude' };
+                readonly lengthOverall: { readonly column: 'lengthOverall' };
+                readonly longitude: { readonly column: 'longitude' };
+                readonly mainEngineModel: { readonly column: 'mainEngineModel' };
+                readonly maxDraught: { readonly column: 'maxDraught' };
+                readonly mmsi: { readonly column: 'mmsi' };
                 readonly name: { readonly column: 'name' };
+                readonly operationalStatus: { readonly column: 'operationalStatus' };
+                readonly speedKnots: { readonly column: 'speedKnots' };
+                readonly teuCapacity: { readonly column: 'teuCapacity' };
+                readonly updatedAt: { readonly column: 'updatedAt' };
+                readonly vesselType: { readonly column: 'vesselType' };
+                readonly yearBuilt: { readonly column: 'yearBuilt' };
               };
             };
           };
@@ -323,6 +640,21 @@ type ContractBase = Omit<
     };
   };
   readonly extensions: {};
+  readonly execution: {
+    readonly executionHash: ExecutionHash;
+    readonly mutations: {
+      readonly defaults: readonly [
+        {
+          readonly onUpdate: { readonly id: 'timestampNow'; readonly kind: 'generator' };
+          readonly ref: {
+            readonly entry: 'Vessel';
+            readonly field: 'updatedAt';
+            readonly namespace: '__unbound__';
+          };
+        },
+      ];
+    };
+  };
   readonly meta: {};
   readonly profileHash: ProfileHash;
 };
