@@ -40,6 +40,18 @@ export interface FaultReportPayload {
   }[];
 }
 
+export interface OrderDraft {
+  id: number;
+  vesselId: number;
+  subject: string;
+  body: string;
+  urgency: 'LOW' | 'NORMAL' | 'CRITICAL';
+  status: 'PENDING_APPROVAL' | 'SENT' | 'REJECTED';
+  items: { partNumber: string; partName: string; quantity: number; notes?: string }[];
+  vessel?: { id: number; name: string; imo: string };
+  supplier?: { id: number; name: string; email: string; portLocation?: string };
+}
+
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     headers: {
@@ -49,24 +61,80 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
     ...options,
   });
 
-  const data = await res.json().catch(() => ({}));
+  const rawText = await res.text();
+  let data: unknown = {};
+
+  if (rawText) {
+    try {
+      data = JSON.parse(rawText);
+    } catch {
+      // Catches Vite returning index.html on 200 OK when the Express server isn't hit
+      throw new Error(
+        `API ${url} returned non-JSON (status ${res.status}). Check that your Express server is running on port 3001.`
+      );
+    }
+  }
 
   if (!res.ok) {
-    throw new Error(data.error || `Request failed (${res.status})`);
+    const errObj = data as { error?: string; message?: string };
+    throw new Error(errObj.error || errObj.message || `Request failed (${res.status})`);
   }
 
   return data as T;
 }
 
+// Safely unwraps either `[...]` or `{ [key]: [...] }` or `{ data: [...] }`
+function extractArray<T>(payload: unknown, key: string): T[] {
+  if (Array.isArray(payload)) return payload;
+  if (payload && typeof payload === 'object') {
+    const record = payload as Record<string, unknown>;
+    if (Array.isArray(record[key])) return record[key] as T[];
+    if (Array.isArray(record.data)) return record.data as T[];
+  }
+  return [];
+}
+
 export const mpcApi = {
-  getVessels: () => request<Vessel[]>('/api/v1/vessels'),
+  getVessels: async (): Promise<Vessel[]> => {
+    const raw = await request<unknown>('/api/v1/vessels');
+    return extractArray<Vessel>(raw, 'vessels');
+  },
+
   getVesselById: (id: number) => request<Vessel>(`/api/v1/vessels/${id}`),
+
   submitFaultReport: (payload: FaultReportPayload) =>
     request<{
       healthUpdate: { vessel: Vessel; previousHealth: number; newHealth: number; penalty: number };
-      draftedOrders: unknown[];
+      draftedOrders: OrderDraft[];
     }>('/api/v1/reports', {
       method: 'POST',
       body: JSON.stringify(payload),
+    }),
+
+  getOrders: async (status: string): Promise<OrderDraft[]> => {
+    const raw = await request<unknown>(`/api/v1/orders?status=${encodeURIComponent(status)}`);
+    const list = extractArray<OrderDraft>(raw, 'orders');
+
+    // SQLite + Prisma often stores JSON arrays as strings; parse safely so .map() never crashes
+    return list.map((order) => ({
+      ...order,
+      items:
+        typeof order.items === 'string'
+          ? JSON.parse(order.items)
+          : Array.isArray(order.items)
+            ? order.items
+            : [],
+    }));
+  },
+
+  approveOrder: (id: number) =>
+    request<{ message: string; previewUrl?: string }>(`/api/v1/orders/${id}/approve`, {
+      method: 'POST',
+    }),
+
+  updateOrderDraft: (id: number, updates: { subject?: string; body?: string }) =>
+    request<OrderDraft>(`/api/v1/orders/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(updates),
     }),
 };

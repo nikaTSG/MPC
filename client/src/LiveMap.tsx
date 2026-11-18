@@ -1,38 +1,33 @@
-import { useState, useEffect } from 'react';
 import type React from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import type { Vessel } from './api/mpcApi';
 
-interface Vessel {
-  id: string;
-  name: string;
-  type: string;
-  lat: number;
-  lng: number;
-  speed: number;
-  heading: number;
-  isOwnShip?: boolean;
+interface LiveMapProps {
+  vessels: Vessel[];
+  selectedVessel: Vessel | null;
+  onSelectVessel: (id: number) => void;
 }
 
+// Reference shipping corridor (Piraeus -> Suez -> Singapore leg start)
 const ROUTE_COORDS: [number, number][] = [
-  [37.94, 23.64], // Πειραιάς
-  [37.45, 24.15],
+  [37.94, 23.64], // Piraeus
   [36.85, 24.80],
-  [36.10, 25.60],
   [35.20, 26.80],
-  [33.80, 29.20],
-  [31.26, 32.30], // Πορτ Σάιντ (Σουέζ)
+  [31.26, 32.30], // Port Said (Suez)
+  [27.50, 34.10], // Red Sea
+  [12.60, 43.30], // Bab-el-Mandeb
 ];
 
-const createShipIcon = (color: string, heading: number, isOwn?: boolean) =>
+const createShipIcon = (color: string, heading: number, isSelected?: boolean) =>
   L.divIcon({
     className: '',
     html: `
       <div style="
         transform: rotate(${heading}deg);
-        width: ${isOwn ? '24px' : '18px'};
-        height: ${isOwn ? '24px' : '18px'};
+        width: ${isSelected ? '26px' : '18px'};
+        height: ${isSelected ? '26px' : '18px'};
         display: flex;
         align-items: center;
         justify-content: center;
@@ -42,130 +37,97 @@ const createShipIcon = (color: string, heading: number, isOwn?: boolean) =>
         </svg>
       </div>
     `,
-    iconSize: [24, 24],
-    iconAnchor: [12, 12],
+    iconSize: [26, 26],
+    iconAnchor: [13, 13],
   });
 
-export const LiveMap: React.FC = () => {
-  const [vessels, setVessels] = useState<Vessel[]>([
-    {
-      id: 'OWN-01',
-      name: 'MV POSEIDON (Your Vessel)',
-      type: 'Container Ship',
-      lat: 36.85,
-      lng: 24.80,
-      speed: 16.4,
-      heading: 135,
-      isOwnShip: true,
-    },
-    {
-      id: 'AIS-102',
-      name: 'MV AEGEAN STAR',
-      type: 'Bulk Carrier',
-      lat: 37.15,
-      lng: 24.45,
-      speed: 12.1,
-      heading: 310,
-    },
-    {
-      id: 'AIS-205',
-      name: 'MT BLUE HORIZON',
-      type: 'Oil Tanker',
-      lat: 36.40,
-      lng: 25.30,
-      speed: 14.0,
-      heading: 45,
-    },
-    {
-      id: 'AIS-309',
-      name: 'CMA CGM ATLAS',
-      type: 'Container Ship',
-      lat: 35.90,
-      lng: 24.20,
-      speed: 18.2,
-      heading: 95,
-    },
-  ]);
+export const LiveMap: React.FC<LiveMapProps> = ({
+  vessels,
+  selectedVessel,
+  onSelectVessel,
+}) => {
+  const mappableVessels = vessels.filter(
+    (v): v is Vessel & { latitude: number; longitude: number } =>
+      v.latitude !== null && v.longitude !== null
+  );
 
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setVessels((prev) =>
-        prev.map((v) => {
-          const rad = (v.heading * Math.PI) / 180;
-          const step = 0.008;
-          return {
-            ...v,
-            lat: Number((v.lat + Math.cos(rad) * step).toFixed(4)),
-            lng: Number((v.lng + Math.sin(rad) * step).toFixed(4)),
-          };
-        })
-      );
-    }, 2000);
+  const activeShip =
+    mappableVessels.find((v) => v.id === selectedVessel?.id) || mappableVessels[0];
 
-    return () => clearInterval(interval);
-  }, []);
-
-  const ownShip = vessels.find((v) => v.isOwnShip) || vessels[0];
+  const mapCenter: [number, number] = activeShip
+    ? [activeShip.latitude, activeShip.longitude]
+    : [36.6, 25.0];
 
   return (
     <div style={mapStyles.wrapper}>
       <div style={mapStyles.infoBar}>
         <div>
-          <span style={mapStyles.liveBadge}>● LIVE AIS</span>
+          <span style={mapStyles.liveBadge}>● LIVE FLEET AIS</span>
           <strong style={{ color: '#F8FAFC', marginLeft: '10px', fontSize: '14px' }}>
-            {ownShip.name}
+            {activeShip ? `${activeShip.name} (IMO: ${activeShip.imo})` : 'No AIS Signal'}
           </strong>
         </div>
-        <div style={mapStyles.coordsText}>
-          LAT: {ownShip.lat}° N | LNG: {ownShip.lng}° E | SPEED: {ownShip.speed} kn
-        </div>
+        {activeShip && (
+          <div style={mapStyles.coordsText}>
+            LAT: {activeShip.latitude.toFixed(2)}° | LNG: {activeShip.longitude.toFixed(2)}° | SPEED:{' '}
+            {activeShip.speedKnots ?? 0} kn | HEALTH: {activeShip.health}%
+          </div>
+        )}
       </div>
 
       <div style={mapStyles.mapBox}>
         <MapContainer
-          center={[36.6, 25.0]}
-          zoom={6}
+          center={mapCenter}
+          zoom={5}
           style={{ height: '100%', width: '100%', borderRadius: '10px' }}
         >
-
-        <TileLayer
-           attribution='Tiles &copy; Esri'
-           url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-        />
-
-        <TileLayer
-          attribution='Labels &copy; Esri'
-          url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"
-        />
+          <TileLayer
+            attribution="Tiles &copy; Esri"
+            url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+          />
+          <TileLayer
+            attribution="Labels &copy; Esri"
+            url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"
+          />
 
           <Polyline
             positions={ROUTE_COORDS}
             pathOptions={{ color: '#2DD4BF', weight: 3, dashArray: '8, 8' }}
           />
 
-          {vessels.map((vessel) => (
-            <Marker
-              key={vessel.id}
-              position={[vessel.lat, vessel.lng]}
-              icon={createShipIcon(
-                vessel.isOwnShip ? '#10B981' : '#F59E0B',
-                vessel.heading,
-                vessel.isOwnShip
-              )}
-            >
-              <Popup>
-                <div style={{ color: '#0F172A', fontSize: '13px' }}>
-                  <strong>{vessel.name}</strong>
-                  <br />
-                  Type: {vessel.type}
-                  <br />
-                  Speed: {vessel.speed} kn | Heading: {vessel.heading}°
-                  <br />
-                  Pos: {vessel.lat}, {vessel.lng}
-                </div>
-              </Popup>
-            </Marker>
-          ))}
+          {mappableVessels.map((vessel) => {
+            const isSelected = vessel.id === activeShip?.id;
+            const markerColor = isSelected
+              ? '#10B981'
+              : vessel.health < 70
+                ? '#EF4444'
+                : '#F59E0B';
+
+            return (
+              <Marker
+                key={vessel.id}
+                position={[vessel.latitude, vessel.longitude]}
+                icon={createShipIcon(markerColor, vessel.heading ?? 0, isSelected)}
+                eventHandlers={{
+                  click: () => onSelectVessel(vessel.id),
+                }}
+              >
+                <Popup>
+                  <div style={{ color: '#0F172A', fontSize: '13px', minWidth: '170px' }}>
+                    <strong>{vessel.name}</strong>
+                    <br />
+                    Type: {vessel.vesselType}
+                    <br />
+                    Health: <strong>{vessel.health}%</strong> ({vessel.operationalStatus})
+                    <br />
+                    Speed: {vessel.speedKnots ?? 0} kn | Heading: {vessel.heading ?? 0}°
+                    <br />
+                    Dest: {vessel.destinationPortCode ?? 'N/A'}
+                  </div>
+                </Popup>
+              </Marker>
+            );
+          })}
         </MapContainer>
       </div>
     </div>
