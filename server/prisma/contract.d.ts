@@ -19,7 +19,7 @@ import type {
 } from '@prisma/orm-sqlite/contract/types';
 
 export type StorageHash =
-  StorageHashBase<'bc6f4bae24ae0cf9b84bab2ca97095178efff3500905f99dfbdb2ef3493e8d2c'>;
+  StorageHashBase<'0060784fda069892b7100fcf6b90f1e1bee95d3a85bf010d7db2358f75b9a9b4'>;
 export type ExecutionHash =
   ExecutionHashBase<'765c42be0aa86af3e62d4e5ca8ab7a4fd841eddc9948fd4e2655ec8d19017d99'>;
 export type ProfileHash =
@@ -256,6 +256,7 @@ export namespace Models {
     flagState: FieldOutputTypes['__unbound__']['Vessel']['flagState'];
     grossTonnage: FieldOutputTypes['__unbound__']['Vessel']['grossTonnage'];
     heading: FieldOutputTypes['__unbound__']['Vessel']['heading'];
+    health: FieldOutputTypes['__unbound__']['Vessel']['health'];
     id: FieldOutputTypes['__unbound__']['Vessel']['id'];
     imo: FieldOutputTypes['__unbound__']['Vessel']['imo'];
     latitude: FieldOutputTypes['__unbound__']['Vessel']['latitude'];
@@ -552,6 +553,16 @@ type ContractBase = Omit<
                   readonly dataType: 'sqlite/real';
                   readonly codecId: 'sqlite/real@1';
                   readonly nullable: true;
+                  readonly many: false;
+                };
+                readonly health: {
+                  readonly dataType: 'sqlite/integer';
+                  readonly codecId: 'sqlite/integer@1';
+                  readonly nullable: false;
+                  readonly default: {
+                    readonly kind: 'literal';
+                    readonly value: DefaultLiteralValue<'sqlite/integer@1', '100'>;
+                  };
                   readonly many: false;
                 };
                 readonly id: {
@@ -903,6 +914,10 @@ type ContractBase = Omit<
                 readonly nullable: true;
                 readonly type: { readonly kind: 'scalar'; readonly codecId: 'sqlite/real@1' };
               };
+              readonly health: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'sqlite/integer@1' };
+              };
               readonly id: {
                 readonly nullable: false;
                 readonly type: { readonly kind: 'scalar'; readonly codecId: 'sqlite/integer@1' };
@@ -980,6 +995,7 @@ type ContractBase = Omit<
                 readonly flagState: { readonly column: 'flagState' };
                 readonly grossTonnage: { readonly column: 'grossTonnage' };
                 readonly heading: { readonly column: 'heading' };
+                readonly health: { readonly column: 'health' };
                 readonly id: { readonly column: 'id' };
                 readonly imo: { readonly column: 'imo' };
                 readonly latitude: { readonly column: 'latitude' };

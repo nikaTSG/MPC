@@ -9,7 +9,6 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Preserved from your original index.ts!
 app.get('/api/health', async (_req, res, next) => {
   try {
     const vessels = await db.orm.Vessel.all();
