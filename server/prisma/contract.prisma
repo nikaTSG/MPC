@@ -26,6 +26,7 @@ model Vessel {
   maxDraught          Float    // Maximum depth below waterline in meters
 
   // Live Telemetry & Voyage Status
+  health              Int      @default(100) //0-100%
   operationalStatus   String   @default("AT_SEA") // "AT_SEA" | "IN_PORT" | "ANCHORED" | "DRYDOCK"
   latitude            Float?
   longitude           Float?
@@ -41,4 +42,34 @@ model Vessel {
   @@index([vesselType])
   @@index([operationalStatus])
   @@index([destinationPortCode])
+}
+
+model Supplier {
+  id           Int                @id @default(autoincrement())
+  name         String
+  email        String             @unique
+  portLocation String?
+  parts        Json               // [{ partNumber, partName, category }]
+  orders       Order[]
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @onCreate(now()) @onUpdate(now())
+}
+
+model Order {
+  id         Int       @id @default(autoincrement())
+  vesselId   Int
+  vessel     Vessel    @relation(fields: [vesselId], references: [id])
+  supplierId Int
+  supplier   Supplier  @relation(fields: [supplierId], references: [id])
+
+  subject    String
+  body       String
+  items      Json                                   // [{ partNumber, partName, quantity, notes }]
+  urgency    String    @default("NORMAL")           // "LOW" | "NORMAL" | "CRITICAL"
+  status     String    @default("PENDING_APPROVAL") // "PENDING_APPROVAL" | "SENT" | "REJECTED"
+
+  approvedAt DateTime?
+  sentAt     DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @onCreate(now()) @onUpdate(now())
 }

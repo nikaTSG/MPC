@@ -1,0 +1,12 @@
+import { Router } from "express";
+import { orderController } from "../controllers/order.controller.js";
+
+const router = Router();
+
+router.post("/generate", orderController.generateDrafts);
+router.get("/", orderController.listOrders); // ?status=PENDING_APPROVAL or ?status=SENT
+router.patch("/:id", orderController.updateDraft);
+router.post("/:id/approve", orderController.approveOrder);
+router.post("/:id/reject", orderController.rejectOrder);
+
+export default router;
