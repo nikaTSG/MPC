@@ -390,22 +390,21 @@ export const ShipDashboard: React.FC = () => {
 
 const styles: Record<string, React.CSSProperties> = {
   page: {
+    width: '100vw',
     minHeight: '100vh',
     backgroundColor: '#0B1320',
     color: '#F8FAFC',
     fontFamily: 'system-ui, -apple-system, sans-serif',
-    padding: '24px',
+    padding: '16px',
     boxSizing: 'border-box',
     display: 'flex',
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   container: {
     display: 'grid',
     gridTemplateColumns: '1.8fr 1fr',
-    gap: '24px',
+    gap: '20px',
     width: '100%',
-    maxWidth: '1360px',
+    flex: 1, // <-- Αυτό το κάνει να τεντώνει σε όλο το ύψος και πλάτος
   },
   leftPanel: {
     backgroundColor: '#111C30',
