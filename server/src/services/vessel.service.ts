@@ -15,7 +15,7 @@ export const vesselService = {
     return db.orm.Vessel.orderBy((v) => v.name.asc()).all();
   },
 
-  // Fetch a single vessel by its primary ID[cite: 2]
+  // Fetch a single vessel by its primary ID
   async getVesselById(id: number) {
     return db.orm.Vessel.where((v) => v.id.eq(id)).first();
   },
