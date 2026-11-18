@@ -1,6 +1,6 @@
 import { db } from '../../prisma/db.js';
 import { draftSupplierEmails } from '../integrations/ai/orderAgent.js';
-// import { sendSupplierEmail } from './email.service.js';
+import { sendSupplierEmail } from '../integrations/email/nodemailer.js';
 
 export type ExtractedPartInput = {
   partNumber: string;
