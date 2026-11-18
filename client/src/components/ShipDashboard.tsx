@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import type React from 'react';
 import LiveMap from './LiveMap';
-import { useVessels } from './hooks/useVessel';
-import { useOrders } from './hooks/useOrder';
-import type { Vessel } from './api/mpcApi';
+import ShipModel from './shipModel';
+import { useVessels } from '../hooks/useVessel';
+import { useOrders } from '../hooks/useOrder';
+import type { Vessel } from '../api/mpcApi';
 
 type SectionId = 'stern' | 'midship' | 'bow';
 type DashboardTab = 'diagnostics' | 'map' | 'procurement';
@@ -61,7 +62,6 @@ function deriveSectionsFromVessel(vessel: Vessel | null): Record<SectionId, Sect
   const base = vessel?.health ?? 100;
   const clamp = (val: number) => Math.max(0, Math.min(100, Math.round(val)));
 
-  // When overall health degrades, reflect primary wear on propulsion (stern) & deck machinery (bow)
   const sternHealth = base === 100 ? 100 : clamp(base - 4);
   const midshipHealth = base === 100 ? 100 : clamp(base + 3);
   const bowHealth = base === 100 ? 100 : clamp(base - 6);
@@ -158,7 +158,6 @@ export const ShipDashboard: React.FC = () => {
   const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_MESSAGES);
   const [chatInput, setChatInput] = useState<string>('');
 
-  // Procurement draft editing & dispatch feedback
   const [editingOrderId, setEditingOrderId] = useState<number | null>(null);
   const [draftSubject, setDraftSubject] = useState('');
   const [draftBody, setDraftBody] = useState('');
@@ -166,7 +165,6 @@ export const ShipDashboard: React.FC = () => {
   const [lastPreviewUrl, setLastPreviewUrl] = useState<string | null>(null);
   const [simulatingFault, setSimulatingFault] = useState(false);
 
-  // Auto-select the first vessel once the fleet loads
   useEffect(() => {
     if (!selectedVessel && vessels.length > 0) {
       setSelectedVesselId(vessels[0].id);
@@ -192,7 +190,6 @@ export const ShipDashboard: React.FC = () => {
     setChatInput('');
   };
 
-  // Demo helper: triggers POST /api/v1/reports, updates vessel health, and refreshes AI drafts
   const handleSimulateFault = async () => {
     if (!selectedVessel || simulatingFault) return;
     try {
@@ -249,12 +246,6 @@ export const ShipDashboard: React.FC = () => {
 
   return (
     <div style={styles.page}>
-      <style>{`
-        .ship-part { cursor: pointer; transition: all 0.25s ease; }
-        .ship-part:hover { filter: brightness(1.35); }
-        .ship-part.active { filter: drop-shadow(0 0 10px rgba(45, 212, 191, 0.55)); }
-      `}</style>
-
       <div style={styles.container}>
         <div style={styles.leftPanel}>
           <div style={styles.topHeaderRow}>
@@ -349,104 +340,12 @@ export const ShipDashboard: React.FC = () => {
                 })}
               </div>
 
-              <div style={styles.shipWrapper}>
-                <svg width="100%" height="260" viewBox="0 0 760 280" fill="none">
-                  <defs>
-                    <linearGradient id="cargoHull" x1="0" y1="130" x2="0" y2="235" gradientUnits="userSpaceOnUse">
-                      <stop offset="0%" stopColor="#1E3A3A" />
-                      <stop offset="60%" stopColor="#0F292E" />
-                      <stop offset="100%" stopColor="#071318" />
-                    </linearGradient>
-                    <linearGradient id="bridgeGrad" x1="0" y1="45" x2="0" y2="155" gradientUnits="userSpaceOnUse">
-                      <stop offset="0%" stopColor="#2DD4BF" stopOpacity="0.38" />
-                      <stop offset="100%" stopColor="#0D9488" stopOpacity="0.14" />
-                    </linearGradient>
-                    <linearGradient id="cargoKeel" x1="0" y1="208" x2="0" y2="232" gradientUnits="userSpaceOnUse">
-                      <stop offset="0%" stopColor="#10B981" stopOpacity="0.45" />
-                      <stop offset="100%" stopColor="#064E3B" stopOpacity="0.85" />
-                    </linearGradient>
-                    <radialGradient id="waterGlow" cx="50%" cy="50%" r="50%">
-                      <stop offset="0%" stopColor="#38BDF8" stopOpacity="0.28" />
-                      <stop offset="100%" stopColor="#38BDF8" stopOpacity="0" />
-                    </radialGradient>
-                  </defs>
-
-                  <ellipse cx="380" cy="240" rx="350" ry="15" fill="url(#waterGlow)" />
-
-                  <g
-                    id="Stern"
-                    className={`ship-part ${selectedSection === 'stern' ? 'active' : ''}`}
-                    onClick={() => setSelectedSection('stern')}
-                  >
-                    <path
-                      d="M 38 142 L 228 152 L 228 212 L 62 212 C 48 194 40 168 38 142 Z"
-                      fill="url(#cargoHull)"
-                      stroke={getHealthColor(sections.stern.health)}
-                      strokeWidth={selectedSection === 'stern' ? 3.5 : 2.2}
-                    />
-                    <path d="M 62 212 L 228 212 L 228 228 L 72 228 L 62 212 Z" fill="url(#cargoKeel)" stroke="#10B981" strokeWidth="1.5" />
-                    <path d="M 38 142 L 72 132 L 228 140 L 228 152 Z" fill="url(#bridgeGrad)" stroke="#10B981" strokeWidth="1.5" />
-                    <path d="M 96 144 L 102 68 L 164 68 L 172 146 Z" fill="url(#bridgeGrad)" stroke="#10B981" strokeWidth="2" />
-                    <line x1="108" y1="90" x2="158" y2="90" stroke="#6EE7B7" strokeWidth="2" strokeDasharray="6 4" />
-                    <line x1="106" y1="108" x2="160" y2="108" stroke="#6EE7B7" strokeWidth="2" strokeDasharray="6 4" />
-                    <line x1="104" y1="126" x2="162" y2="126" stroke="#6EE7B7" strokeWidth="2" strokeDasharray="6 4" />
-                    <path d="M 92 68 L 96 54 L 174 54 L 178 68 Z" fill="#134E4A" stroke="#6EE7B7" strokeWidth="2" />
-                    <path d="M 102 58 L 168 58 L 171 64 L 102 64 Z" fill="#6EE7B7" fillOpacity="0.85" />
-                    <line x1="135" y1="54" x2="135" y2="24" stroke="#6EE7B7" strokeWidth="2" />
-                    <line x1="118" y1="34" x2="152" y2="34" stroke="#6EE7B7" strokeWidth="2" />
-                    <circle cx="135" cy="21" r="4" fill="#0F292E" stroke="#6EE7B7" strokeWidth="1.5" />
-                    <path d="M 74 142 L 68 82 L 92 82 L 96 142 Z" fill="url(#cargoHull)" stroke="#10B981" strokeWidth="2" />
-                    <path d="M 68 82 L 92 82 L 93 92 L 69 92 Z" fill="#10B981" fillOpacity="0.65" />
-                    <path d="M 46 134 L 70 126 L 74 136 L 48 141 Z" fill="#10B981" fillOpacity="0.5" stroke="#6EE7B7" strokeWidth="1.3" />
-                    <rect x="180" y="108" width="42" height="36" rx="2" fill="#10B981" fillOpacity="0.22" stroke="#10B981" strokeWidth="1.5" />
-                  </g>
-
-                  <g
-                    id="Midship"
-                    className={`ship-part ${selectedSection === 'midship' ? 'active' : ''}`}
-                    onClick={() => setSelectedSection('midship')}
-                  >
-                    <path
-                      d="M 236 152 L 494 152 L 494 212 L 236 212 Z"
-                      fill="url(#cargoHull)"
-                      stroke={getHealthColor(sections.midship.health)}
-                      strokeWidth={selectedSection === 'midship' ? 3.5 : 2.2}
-                    />
-                    <path d="M 236 212 L 494 212 L 494 228 L 236 228 Z" fill="url(#cargoKeel)" stroke="#10B981" strokeWidth="1.5" />
-                    <line x1="236" y1="145" x2="494" y2="145" stroke="#6EE7B7" strokeWidth="1.5" />
-                    <rect x="242" y="96" width="56" height="48" rx="2" fill="#10B981" fillOpacity="0.28" stroke="#10B981" strokeWidth="1.6" />
-                    <rect x="304" y="84" width="60" height="60" rx="2" fill="#0D9488" fillOpacity="0.35" stroke="#6EE7B7" strokeWidth="1.6" />
-                    <rect x="370" y="96" width="56" height="48" rx="2" fill="#10B981" fillOpacity="0.24" stroke="#10B981" strokeWidth="1.6" />
-                    <rect x="432" y="108" width="56" height="36" rx="2" fill="#10B981" fillOpacity="0.32" stroke="#6EE7B7" strokeWidth="1.6" />
-                    <circle cx="365" cy="184" r="6" stroke="#6EE7B7" strokeWidth="1.5" strokeOpacity="0.7" />
-                  </g>
-
-                  <g
-                    id="Bow"
-                    className={`ship-part ${selectedSection === 'bow' ? 'active' : ''}`}
-                    onClick={() => setSelectedSection('bow')}
-                  >
-                    <rect x="502" y="116" width="44" height="28" rx="2" fill="#10B981" fillOpacity="0.22" stroke="#10B981" strokeWidth="1.5" />
-                    <path d="M 552 144 L 560 118 L 568 144 Z" fill="#10B981" fillOpacity="0.4" stroke="#6EE7B7" strokeWidth="1.5" />
-                    <path
-                      d="M 502 152 L 580 144 L 722 122 C 696 158 672 188 652 212 L 502 212 Z"
-                      fill="url(#cargoHull)"
-                      stroke={getHealthColor(sections.bow.health)}
-                      strokeWidth={selectedSection === 'bow' ? 3.5 : 2.2}
-                    />
-                    <path d="M 502 212 L 652 212 C 676 212 690 220 684 226 C 678 231 650 228 630 228 L 502 228 Z" fill="url(#cargoKeel)" stroke="#10B981" strokeWidth="1.8" />
-                    <path d="M 502 152 L 512 142 L 580 136 L 722 122 L 580 144 Z" fill="url(#bridgeGrad)" stroke="#6EE7B7" strokeWidth="1.5" />
-                    <ellipse cx="648" cy="158" rx="6" ry="8" fill="#071318" stroke="#6EE7B7" strokeWidth="1.8" />
-                    <line x1="612" y1="134" x2="612" y2="96" stroke="#6EE7B7" strokeWidth="2" />
-                    <circle cx="612" cy="94" r="3" fill="#6EE7B7" />
-                  </g>
-                </svg>
-                <div style={styles.hintText}>
-                  {selectedVessel
-                    ? `${selectedVessel.name} • Overall Health: ${selectedVessel.health}% • Status: ${selectedVessel.operationalStatus}`
-                    : 'Loading vessel telemetry...'}
-                </div>
-              </div>
+              <ShipModel
+                vessel={selectedVessel}
+                sections={sections}
+                selectedSection={selectedSection}
+                onSelectSection={setSelectedSection}
+              />
 
               <div style={styles.detailsBox}>
                 <div style={styles.detailsHeader}>{activeData.title}</div>
@@ -801,17 +700,6 @@ const styles: Record<string, React.CSSProperties> = {
     textAlign: 'center',
     cursor: 'pointer',
     transition: 'all 0.2s ease',
-  },
-  shipWrapper: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    padding: '8px 0',
-  },
-  hintText: {
-    fontSize: '12px',
-    color: '#64748B',
-    marginTop: '4px',
   },
   detailsBox: {
     backgroundColor: '#1E293B',

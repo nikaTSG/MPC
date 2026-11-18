@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type React from 'react';
 import {
   MapContainer,
@@ -8,11 +8,12 @@ import {
   Polyline,
   CircleMarker,
   useMap,
+  useMapEvents,
 } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import type { Vessel } from './api/mpcApi';
-import { computeMaritimeRoute, MARITIME_PORTS } from './utils/seaRouter';
+import type { Vessel } from '../api/mpcApi';
+import { computeMaritimeRoute, MARITIME_PORTS } from '../utils/seaRouter';
 
 interface LiveMapProps {
   vessels: Vessel[];
@@ -20,12 +21,32 @@ interface LiveMapProps {
   onSelectVessel: (id: number) => void;
 }
 
-// React-Leaflet <MapContainer center> is immutable after mount; this smoothly flies on vessel switch
-const MapCameraController: React.FC<{ center: [number, number] }> = ({ center }) => {
+const INITIAL_ZOOM = 4;
+const MIN_VESSEL_ZOOM = 3;
+
+const getVesselStatusColor = (health: number): string => {
+  if (health < 55) return '#EF4444'; // Critical: Red
+  if (health < 80) return '#FACC15'; // Warning: Yellow
+  return '#38BDF8'; // Healthy: Blue
+};
+
+// Tracks zoom level and pans smoothly to selected vessel without overriding user zoom
+const MapCameraAndZoomController: React.FC<{
+  center: [number, number];
+  onZoomChange: (zoom: number) => void;
+}> = ({ center, onZoomChange }) => {
   const map = useMap();
+
+  useMapEvents({
+    zoomend: () => {
+      onZoomChange(map.getZoom());
+    },
+  });
+
   useEffect(() => {
-    map.flyTo(center, map.getZoom(), { duration: 1.1 });
+    map.flyTo(center, map.getZoom(), { duration: 1.0 });
   }, [center[0], center[1], map]);
+
   return null;
 };
 
@@ -67,28 +88,46 @@ const createCyberShipIcon = (
     iconAnchor: [16, 16],
   });
 
-const createPortIcon = (color: string, isDestination: boolean) =>
-  L.divIcon({
+// Circular concentric purple port beacon
+const createPortIcon = (isDestination: boolean, isRecommendedRepair: boolean) => {
+  const size = isDestination ? 20 : isRecommendedRepair ? 18 : 14;
+  const coreColor = isDestination ? '#E879F9' : '#C084FC';
+  const borderStyle = isDestination ? '2.5px solid #E879F9' : '2px solid #A855F7';
+
+  return L.divIcon({
     className: '',
     html: `
       <div style="
-        width: ${isDestination ? '16px' : '12px'};
-        height: ${isDestination ? '16px' : '12px'};
-        transform: rotate(45deg);
-        background: #070D17;
-        border: 2px solid ${color};
-        box-shadow: 0 0 10px ${color};
-      "></div>
+        width: ${size}px;
+        height: ${size}px;
+        border-radius: 50%;
+        background: rgba(88, 28, 135, 0.45);
+        border: ${borderStyle};
+        box-shadow: 0 0 ${isDestination ? '14px' : '9px'} #A855F7;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      ">
+        <div style="
+          width: ${isDestination ? '7px' : '5px'};
+          height: ${isDestination ? '7px' : '5px'};
+          border-radius: 50%;
+          background: ${coreColor};
+        "></div>
+      </div>
     `,
-    iconSize: [16, 16],
-    iconAnchor: [8, 8],
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
   });
+};
 
 export const LiveMap: React.FC<LiveMapProps> = ({
   vessels,
   selectedVessel,
   onSelectVessel,
 }) => {
+  const [currentZoom, setCurrentZoom] = useState<number>(INITIAL_ZOOM);
+
   const mappableVessels = vessels.filter(
     (v): v is Vessel & { latitude: number; longitude: number } =>
       v.latitude !== null && v.longitude !== null
@@ -106,13 +145,14 @@ export const LiveMap: React.FC<LiveMapProps> = ({
     ? [activeShip.latitude, activeShip.longitude]
     : [22.0, 58.0];
 
-  const isDegraded = (activeShip?.health ?? 100) < 70;
-  const routeColor = isDegraded ? '#F43F5E' : '#22D3EE';
+  const activeHealth = activeShip?.health ?? 100;
+  const isDegraded = activeHealth < 80;
+  const activeStatusColor = getVesselStatusColor(activeHealth);
+  const showVessels = currentZoom >= MIN_VESSEL_ZOOM;
 
   return (
     <div style={mapStyles.wrapper}>
       <style>{`
-        /* Cyberpunk dark obsidian Leaflet overrides */
         .cyber-map-tiles {
           filter: brightness(0.82) contrast(1.3) sepia(0.25) hue-rotate(175deg) saturate(1.8);
         }
@@ -120,16 +160,50 @@ export const LiveMap: React.FC<LiveMapProps> = ({
           background: #060B14 !important;
           font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
         }
+
+        /* Default Port Popup Styling */
         .leaflet-popup-content-wrapper, .leaflet-popup-tip {
           background: rgba(11, 19, 32, 0.95) !important;
           color: #F8FAFC !important;
-          border: 1px solid #22D3EE;
-          box-shadow: 0 0 18px rgba(34, 211, 238, 0.25);
+          border: 1px solid #A855F7;
+          box-shadow: 0 0 18px rgba(168, 85, 247, 0.28);
           border-radius: 8px;
         }
         .leaflet-popup-close-button {
           color: #94A3B8 !important;
         }
+
+        /* Side-Anchored Tactical Vessel Callout (Leader Line + HUD Panel) */
+        .cyber-vessel-callout.leaflet-popup {
+          margin-bottom: 0 !important;
+        }
+        .cyber-vessel-callout .leaflet-popup-tip-container {
+          display: none !important;
+        }
+        .cyber-vessel-callout .leaflet-popup-content-wrapper {
+          background: transparent !important;
+          border: none !important;
+          box-shadow: none !important;
+          padding: 0 !important;
+          border-radius: 0 !important;
+          overflow: visible !important;
+        }
+        .cyber-vessel-callout .leaflet-popup-content {
+          margin: 0 !important;
+          width: 248px !important;
+          overflow: visible !important;
+        }
+        .cyber-vessel-callout .leaflet-popup-close-button {
+          top: 7px !important;
+          right: 9px !important;
+          color: #94A3B8 !important;
+          font-size: 16px !important;
+          z-index: 10;
+        }
+        .cyber-vessel-callout .leaflet-popup-close-button:hover {
+          color: #F8FAFC !important;
+        }
+
         .leaflet-control-zoom a {
           background: #0F172A !important;
           color: #22D3EE !important;
@@ -165,7 +239,7 @@ export const LiveMap: React.FC<LiveMapProps> = ({
           position: absolute;
           inset: 0;
           border-radius: 50%;
-          border: 2px solid #22D3EE;
+          border: 2px solid #38BDF8;
           animation: radarPulse 2s ease-out infinite;
           pointer-events: none;
         }
@@ -184,13 +258,18 @@ export const LiveMap: React.FC<LiveMapProps> = ({
               {routeData.remainingNm.toLocaleString()} NM
             </span>
           )}
+          {!showVessels && (
+            <span style={mapStyles.zoomHintBadge}>
+              ZOOM IN (Z≥{MIN_VESSEL_ZOOM}) TO SHOW VESSELS
+            </span>
+          )}
         </div>
 
         {activeShip && (
           <div style={mapStyles.coordsText}>
             POS {activeShip.latitude.toFixed(2)}°N, {activeShip.longitude.toFixed(2)}°E | SOG{' '}
             {activeShip.speedKnots ?? 0} KT | HDG {activeShip.heading ?? 0}° | HP{' '}
-            <span style={{ color: isDegraded ? '#F43F5E' : '#10B981', fontWeight: 700 }}>
+            <span style={{ color: activeStatusColor, fontWeight: 700 }}>
               {activeShip.health}%
             </span>
           </div>
@@ -201,10 +280,11 @@ export const LiveMap: React.FC<LiveMapProps> = ({
       <div style={mapStyles.mapBox}>
         <MapContainer
           center={mapCenter}
-          zoom={4}
+          zoom={INITIAL_ZOOM}
+          minZoom={2}
           style={{ height: '100%', width: '100%', borderRadius: '10px' }}
         >
-          <MapCameraController center={mapCenter} />
+          <MapCameraAndZoomController center={mapCenter} onZoomChange={setCurrentZoom} />
 
           <TileLayer
             attribution="Tiles &copy; Esri"
@@ -222,22 +302,20 @@ export const LiveMap: React.FC<LiveMapProps> = ({
           {/* Dual-Layer Glowing Sea-Lane Route */}
           {routeData && routeData.coordinates.length > 1 && (
             <>
-              {/* Outer Neon Halo */}
               <Polyline
                 positions={routeData.coordinates}
                 pathOptions={{
-                  color: routeColor,
+                  color: activeStatusColor,
                   weight: 9,
                   opacity: 0.2,
                   lineCap: 'round',
                   lineJoin: 'round',
                 }}
               />
-              {/* Inner Animated Dash Core */}
               <Polyline
                 positions={routeData.coordinates}
                 pathOptions={{
-                  color: routeColor,
+                  color: activeStatusColor,
                   weight: 2.5,
                   opacity: 0.95,
                   dashArray: '10, 8',
@@ -254,7 +332,7 @@ export const LiveMap: React.FC<LiveMapProps> = ({
               center={coord}
               radius={2.5}
               pathOptions={{
-                color: routeColor,
+                color: activeStatusColor,
                 fillColor: '#060B14',
                 fillOpacity: 1,
                 weight: 1.5,
@@ -262,7 +340,7 @@ export const LiveMap: React.FC<LiveMapProps> = ({
             />
           ))}
 
-          {/* Major Ports & Schema-Verified Repair Hubs */}
+          {/* Purple Circular Maritime Port Beacons */}
           {Object.values(MARITIME_PORTS).map((port) => {
             const isDest = routeData?.destinationPort?.code === port.code;
             const repairMatch = routeData?.recommendedRepairPorts.find(
@@ -272,26 +350,20 @@ export const LiveMap: React.FC<LiveMapProps> = ({
 
             if (!isDest && !isRecommendedRepair && !port.hasRepairDrydock) return null;
 
-            const portColor = isDest
-              ? '#22D3EE'
-              : isRecommendedRepair
-                ? '#A855F7'
-                : '#475569';
-
             return (
               <Marker
                 key={port.code}
                 position={port.coords}
-                icon={createPortIcon(portColor, isDest || isRecommendedRepair)}
+                icon={createPortIcon(isDest, isRecommendedRepair)}
               >
                 <Popup>
                   <div style={{ fontSize: '12px', lineHeight: 1.5, minWidth: '195px' }}>
-                    <div style={{ color: portColor, fontWeight: 700 }}>
+                    <div style={{ color: '#C084FC', fontWeight: 700 }}>
                       {isDest
-                        ? '◈ SCHEDULED DESTINATION'
+                        ? '◉ SCHEDULED DESTINATION'
                         : isRecommendedRepair
-                          ? '◈ RECOMMENDED REPAIR PORT'
-                          : '◇ MARITIME HUB'}
+                          ? '◉ RECOMMENDED REPAIR PORT'
+                          : '○ MARITIME HUB'}
                     </div>
                     <strong style={{ fontSize: '13px' }}>
                       {port.name} ({port.code})
@@ -308,12 +380,12 @@ export const LiveMap: React.FC<LiveMapProps> = ({
                             activeShip.maxDraught <= port.maxDraught &&
                             activeShip.lengthOverall <= port.maxLoa
                               ? 'rgba(16, 185, 129, 0.15)'
-                              : 'rgba(244, 63, 94, 0.15)',
+                              : 'rgba(239, 68, 68, 0.15)',
                           color:
                             activeShip.maxDraught <= port.maxDraught &&
                             activeShip.lengthOverall <= port.maxLoa
                               ? '#34D399'
-                              : '#FB7185',
+                              : '#F87171',
                           fontWeight: 700,
                         }}
                       >
@@ -329,60 +401,124 @@ export const LiveMap: React.FC<LiveMapProps> = ({
             );
           })}
 
-          {/* Fleet Vessel Markers */}
-          {mappableVessels.map((vessel) => {
-            const isSelected = vessel.id === activeShip?.id;
-            const isCritical = vessel.health < 70;
-            const markerColor = isCritical
-              ? '#F43F5E'
-              : isSelected
-                ? '#2DD4BF'
-                : '#F59E0B';
+          {/* Fleet Vessel Markers with Side-Anchored Callout HUD */}
+          {showVessels &&
+            mappableVessels.map((vessel) => {
+              const isSelected = vessel.id === activeShip?.id;
+              const isCritical = vessel.health < 55;
+              const markerColor = getVesselStatusColor(vessel.health);
 
-            return (
-              <Marker
-                key={vessel.id}
-                position={[vessel.latitude, vessel.longitude]}
-                icon={createCyberShipIcon(
-                  markerColor,
-                  vessel.heading ?? 0,
-                  isSelected,
-                  isCritical
-                )}
-                eventHandlers={{
-                  click: () => onSelectVessel(vessel.id),
-                }}
-              >
-                <Popup>
-                  <div style={{ fontSize: '12px', lineHeight: 1.5, minWidth: '185px' }}>
-                    <strong style={{ color: markerColor, fontSize: '13px' }}>{vessel.name}</strong>
-                    <br />
-                    IMO: {vessel.imo} • {vessel.vesselType}
-                    <br />
-                    Health: <strong>{vessel.health}%</strong> ({vessel.operationalStatus})
-                    <br />
-                    Draught: {vessel.maxDraught}m • LOA: {vessel.lengthOverall}m
-                    <br />
-                    Dest: {vessel.destinationPortCode ?? 'UNASSIGNED'}
-                  </div>
-                </Popup>
-              </Marker>
-            );
-          })}
+              return (
+                <Marker
+                  key={vessel.id}
+                  position={[vessel.latitude, vessel.longitude]}
+                  icon={createCyberShipIcon(
+                    markerColor,
+                    vessel.heading ?? 0,
+                    isSelected,
+                    isCritical
+                  )}
+                  eventHandlers={{
+                    click: () => onSelectVessel(vessel.id),
+                  }}
+                >
+                  <Popup className="cyber-vessel-callout" offset={[164, -26]}>
+                    <div
+                      style={{
+                        ...mapStyles.calloutCard,
+                        borderColor: markerColor,
+                        boxShadow: `0 0 22px ${markerColor}33`,
+                      }}
+                    >
+                      {/* Diagonal Leader Line from Ship Center to Bottom-Left Corner of Card */}
+                      <svg
+                        viewBox="0 0 42 28"
+                        style={{
+                          position: 'absolute',
+                          left: '-41px',
+                          bottom: '-27px',
+                          width: '42px',
+                          height: '28px',
+                          pointerEvents: 'none',
+                          overflow: 'visible',
+                        }}
+                      >
+                        <line
+                          x1="1"
+                          y1="26"
+                          x2="41"
+                          y2="0"
+                          stroke={markerColor}
+                          strokeWidth="1.75"
+                        />
+                        <circle cx="1" cy="26" r="2.8" fill={markerColor} />
+                      </svg>
+
+                      {/* Header Row */}
+                      <div
+                        style={{
+                          ...mapStyles.calloutHeader,
+                          borderBottomColor: `${markerColor}44`,
+                        }}
+                      >
+                        <strong style={{ color: markerColor, fontSize: '13px', letterSpacing: '0.4px' }}>
+                          {vessel.name}
+                        </strong>
+                        <span
+                          style={{
+                            ...mapStyles.calloutStatusTag,
+                            color: markerColor,
+                            borderColor: `${markerColor}55`,
+                          }}
+                        >
+                          {vessel.operationalStatus}
+                        </span>
+                      </div>
+
+                      {/* Telemetry Rows */}
+                      <div style={mapStyles.calloutBody}>
+                        <div style={mapStyles.calloutRow}>
+                          <span style={mapStyles.calloutLabel}>IMO / TYPE</span>
+                          <span>
+                            {vessel.imo} • {vessel.vesselType}
+                          </span>
+                        </div>
+                        <div style={mapStyles.calloutRow}>
+                          <span style={mapStyles.calloutLabel}>HULL HEALTH</span>
+                          <strong style={{ color: markerColor }}>{vessel.health}%</strong>
+                        </div>
+                        <div style={mapStyles.calloutRow}>
+                          <span style={mapStyles.calloutLabel}>DIMENSIONS</span>
+                          <span>
+                            {vessel.maxDraught}m D • {vessel.lengthOverall}m LOA
+                          </span>
+                        </div>
+                        <div style={mapStyles.calloutRow}>
+                          <span style={mapStyles.calloutLabel}>DESTINATION</span>
+                          <span style={{ color: '#E2E8F0', fontWeight: 700 }}>
+                            {vessel.destinationPortCode ?? 'UNASSIGNED'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </Popup>
+                </Marker>
+              );
+            })}
         </MapContainer>
       </div>
 
-      {/* Bottom Recommended Repair Strip when selected ship has low health */}
+      {/* Bottom Recommended Repair Strip when selected ship has warning/critical health */}
       {activeShip && isDegraded && routeData && routeData.recommendedRepairPorts.length > 0 && (
         <div style={mapStyles.repairStrip}>
-          <span style={{ color: '#A855F7', fontWeight: 700, fontSize: '12px' }}>
+          <span style={{ color: '#C084FC', fontWeight: 700, fontSize: '12px' }}>
             ⚡ NEAREST DRYDOCK / REPAIR PORTS FOR {activeShip.name} (DRAUGHT {activeShip.maxDraught}m):
           </span>
           <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
             {routeData.recommendedRepairPorts.map(({ port, distanceFromVesselNm, berthCleared }) => (
               <span key={port.code} style={mapStyles.repairPill}>
                 <strong>{port.code}</strong> ({port.name}) • {distanceFromVesselNm} NM •{' '}
-                <span style={{ color: berthCleared ? '#10B981' : '#F43F5E' }}>
+                <span style={{ color: berthCleared ? '#10B981' : '#EF4444' }}>
                   {berthCleared ? 'BERTH OK' : 'TOO SHALLOW'}
                 </span>
               </span>
@@ -413,9 +549,9 @@ const mapStyles: Record<string, React.CSSProperties> = {
     gap: '8px',
   },
   liveBadge: {
-    backgroundColor: 'rgba(34, 211, 238, 0.12)',
-    color: '#22D3EE',
-    border: '1px solid rgba(34, 211, 238, 0.35)',
+    backgroundColor: 'rgba(56, 189, 248, 0.12)',
+    color: '#38BDF8',
+    border: '1px solid rgba(56, 189, 248, 0.35)',
     padding: '4px 8px',
     borderRadius: '6px',
     fontSize: '11px',
@@ -431,6 +567,15 @@ const mapStyles: Record<string, React.CSSProperties> = {
     fontSize: '11px',
     fontFamily: 'monospace',
   },
+  zoomHintBadge: {
+    backgroundColor: 'rgba(148, 163, 184, 0.12)',
+    color: '#94A3B8',
+    border: '1px solid rgba(148, 163, 184, 0.3)',
+    padding: '3px 8px',
+    borderRadius: '6px',
+    fontSize: '11px',
+    fontFamily: 'monospace',
+  },
   coordsText: {
     color: '#94A3B8',
     fontSize: '12px',
@@ -441,8 +586,53 @@ const mapStyles: Record<string, React.CSSProperties> = {
     width: '100%',
     borderRadius: '12px',
     overflow: 'hidden',
-    border: '1px solid rgba(34, 211, 238, 0.3)',
-    boxShadow: '0 0 24px rgba(6, 182, 212, 0.12)',
+    border: '1px solid rgba(168, 85, 247, 0.35)',
+    boxShadow: '0 0 24px rgba(168, 85, 247, 0.14)',
+  },
+  calloutCard: {
+    position: 'relative',
+    width: '248px',
+    boxSizing: 'border-box',
+    backgroundColor: 'rgba(7, 14, 26, 0.94)',
+    border: '1.5px solid #38BDF8',
+    borderRadius: '0px',
+    padding: '10px 12px',
+    color: '#F8FAFC',
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+  },
+  calloutHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    paddingBottom: '6px',
+    paddingRight: '18px',
+    marginBottom: '7px',
+    borderBottom: '1px solid rgba(56, 189, 248, 0.3)',
+    flexWrap: 'wrap',
+  },
+  calloutStatusTag: {
+    fontSize: '9.5px',
+    fontWeight: 700,
+    padding: '1px 5px',
+    borderRadius: '3px',
+    border: '1px solid',
+  },
+  calloutBody: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '4px',
+    fontSize: '11px',
+    color: '#CBD5E1',
+  },
+  calloutRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: '8px',
+  },
+  calloutLabel: {
+    color: '#64748B',
+    fontSize: '10px',
   },
   repairStrip: {
     backgroundColor: 'rgba(168, 85, 247, 0.08)',
