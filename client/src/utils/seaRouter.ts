@@ -249,3 +249,190 @@ export function computeMaritimeRoute(vessel: Vessel): SeaRouteResult {
     remainingNm: Math.round(totalNm),
   };
 }
+// Natural Earth 1:10m land and minor islands, v5.1.2 (public domain).
+// The 1 arcminute mask blocks coastal cells intersecting land. Each latitude row
+// stores pairs of longitude indices marking half-open land runs [west, east).
+// https://github.com/nvkelso/natural-earth-vector/tree/v5.1.2/geojson
+const CELLS_PER_DEGREE = 60;
+const COLUMNS = 360 * CELLS_PER_DEGREE;
+const ROWS = 180 * CELLS_PER_DEGREE;
+type Point = [number, number];
+interface Coastline {
+  offsets: Uint32Array;
+  runs: Uint16Array;
+}
+
+let coastlineRequest: Promise<Coastline> | undefined;
+
+function loadCoastline(): Promise<Coastline> {
+  coastlineRequest ??= fetch(new URL('../assets/repair-coastline.bin', import.meta.url))
+    .then(async (response) => {
+      if (!response.ok) throw new Error('Coastline unavailable');
+      const bytes = await response.arrayBuffer();
+      const offsets = new Uint32Array(bytes, 0, ROWS + 1);
+      const runs = new Uint16Array(bytes, offsets.byteLength);
+      if (offsets[ROWS] !== runs.length) throw new Error('Invalid coastline');
+      return { offsets, runs };
+    }).catch((error: unknown) => {
+      coastlineRequest = undefined;
+      throw error;
+    });
+  return coastlineRequest;
+}
+
+function localWaterGrid(origin: Point, destination: Point, coastline: Coastline) {
+  const cell = ([lat, lon]: Point): Point => [
+    Math.floor((lon + 180) * CELLS_PER_DEGREE),
+    Math.min(ROWS - 1, Math.floor((90 - lat) * CELLS_PER_DEGREE)),
+  ];
+  const from = cell(origin);
+  const to = cell(destination);
+  // A regional window keeps the search bounded, including near the date line.
+  const padding = Math.min(160, Math.max(20, Math.ceil(distanceNm(origin, destination) * 1.25)));
+  const polarLatitude = Math.max(Math.abs(origin[0]), Math.abs(destination[0]));
+  const longitudePadding = Math.ceil(padding / Math.max(0.1, Math.cos(polarLatitude * Math.PI / 180)));
+  const west = Math.min(from[0], to[0]) - longitudePadding;
+  const east = Math.max(from[0], to[0]) + longitudePadding;
+  const north = Math.max(0, Math.min(from[1], to[1]) - padding);
+  const south = Math.min(ROWS - 1, Math.max(from[1], to[1]) + padding);
+  const width = east - west + 1;
+  const height = south - north + 1;
+  if (width >= COLUMNS || height * width > 1_500_000) return null;
+
+  // 0 means open water, -1 land. A border prevents a search step wrapping a row.
+  const cells = new Int8Array(width * height);
+  const { offsets, runs } = coastline;
+  for (let row = north; row <= south; row++) {
+    const start = (row - north) * width;
+    for (let world = Math.floor(west / COLUMNS); world <= Math.floor(east / COLUMNS); world++) {
+      const shift = world * COLUMNS - west;
+      for (let i = offsets[row]; i < offsets[row + 1]; i += 2) {
+        const left = Math.max(0, runs[i] + shift);
+        const right = Math.min(width, runs[i + 1] + shift);
+        if (right > left) cells.fill(-1, start + left, start + right);
+      }
+    }
+    cells[start] = cells[start + width - 1] = -1;
+  }
+  cells.fill(-1, 0, width);
+  cells.fill(-1, cells.length - width);
+  const index = ([x, y]: Point) => (y - north) * width + x - west;
+  const center = (i: number): Point => [
+    90 - (north + Math.floor(i / width) + 0.5) / CELLS_PER_DEGREE,
+    (west + i % width + 0.5) / CELLS_PER_DEGREE - 180,
+  ];
+  function approach(point: Point, location: Point) {
+    const here = index(point);
+    if (cells[here] === 0) return here;
+    // WPI often marks a port office or quay. Stop at water within four NM;
+    // drawing a final line between that approach and the marker could cross land.
+    let best = -1;
+    let closest = 4;
+    const longitudeRange = Math.ceil(4 / Math.max(0.1, Math.cos(location[0] * Math.PI / 180)));
+    for (let y = Math.max(north, point[1] - 4); y <= Math.min(south, point[1] + 4); y++) {
+      for (let x = Math.max(west, point[0] - longitudeRange); x <= Math.min(east, point[0] + longitudeRange); x++) {
+        const candidate = index([x, y]);
+        if (cells[candidate] !== 0) continue;
+        const distance = distanceNm(location, center(candidate));
+        if (distance < closest) { closest = distance; best = candidate; }
+      }
+    }
+    return best;
+  }
+  return { cells, width, center, start: approach(from, origin), end: approach(to, destination),
+    originAtSea: cells[index(from)] === 0, destinationAtSea: cells[index(to)] === 0 };
+}
+
+// Traverse every intersected cell (including both neighbours at diagonal corners).
+function clearWaterLine(start: number, end: number, width: number, cells: Int8Array) {
+  const dx = end % width - start % width;
+  const dy = Math.floor(end / width) - Math.floor(start / width);
+  const xStep = Math.sign(dx);
+  const yStep = Math.sign(dy) * width;
+  const nx = Math.abs(dx);
+  const ny = Math.abs(dy);
+  let cell = start;
+  let x = 0;
+  let y = 0;
+  while (x < nx || y < ny) {
+    const balance = (2 * x + 1) * ny - (2 * y + 1) * nx;
+    if (balance === 0 && (cells[cell + xStep] < 0 || cells[cell + yStep] < 0)) return false;
+    if (balance <= 0) { cell += xStep; x++; }
+    if (balance >= 0) { cell += yStep; y++; }
+    if (cells[cell] < 0) return false;
+  }
+  return true;
+}
+
+function waterPath(start: number, end: number, width: number, cells: Int8Array): number[] | null {
+  if (clearWaterLine(start, end, width, cells)) return start === end ? [start] : [start, end];
+  const directions = [1, -1, width, -width];
+  const queue = new Int32Array(cells.length);
+  let head = 0;
+  let tail = 1;
+  queue[0] = start;
+  cells[start] = 5;
+  while (head < tail && cells[end] === 0) {
+    const current = queue[head++];
+    for (let d = 0; d < directions.length; d++) {
+      const next = current + directions[d];
+      if (cells[next] !== 0) continue;
+      cells[next] = d + 1;
+      queue[tail++] = next;
+    }
+  }
+  if (cells[end] === 0) return null;
+
+  const reverse = [end];
+  for (let i = end; i !== start;) {
+    i -= directions[cells[i] - 1];
+    reverse.push(i);
+  }
+  const path = reverse.reverse();
+  const turns = [start];
+  let last = start;
+  for (let i = 2; i < path.length; i++) {
+    if (!clearWaterLine(last, path[i], width, cells)) {
+      last = path[i - 1];
+      turns.push(last);
+    }
+  }
+  turns.push(end);
+  return turns;
+}
+
+export interface RepairApproach {
+  coordinates: Point[];
+  remainingNm: number;
+  offshore: boolean;
+}
+
+export async function estimateRepairApproach(origin: Point, destination: Point, signal: AbortSignal): Promise<RepairApproach | null> {
+  const coast = await loadCoastline();
+  signal.throwIfAborted();
+  const end: Point = [destination[0], destination[1]];
+  if (Math.abs(end[1] - origin[1]) > 180) end[1] += end[1] < origin[1] ? 360 : -360;
+  const grid = localWaterGrid(origin, end, coast);
+  if (!grid || grid.start < 0 || grid.end < 0) return null;
+  const path = waterPath(grid.start, grid.end, grid.width, grid.cells);
+  if (!path) return null;
+  const coordinates = path.map(grid.center);
+  // Join an actual position only within its own open cell.
+  if (grid.originAtSea) coordinates.unshift(origin);
+  if (grid.destinationAtSea) coordinates.push(end);
+  let distance = 0;
+  // Leaflet projects to Mercator. Subdivide long latitude changes so a drawn
+  // segment follows the checked line in the geographic grid at high latitude.
+  const projected = [coordinates[0]];
+  for (let i = 1; i < coordinates.length; i++) {
+    const [lat, lon] = coordinates[i - 1];
+    const [nextLat, nextLon] = coordinates[i];
+    const steps = Math.max(1, Math.ceil(Math.abs(nextLat - lat) * 4));
+    for (let step = 1; step <= steps; step++) {
+      const next: Point = [lat + (nextLat - lat) * step / steps, lon + (nextLon - lon) * step / steps];
+      distance += distanceNm(projected[projected.length - 1], next);
+      projected.push(next);
+    }
+  }
+  return { coordinates: projected, remainingNm: Math.round(distance), offshore: !grid.originAtSea || !grid.destinationAtSea };
+}

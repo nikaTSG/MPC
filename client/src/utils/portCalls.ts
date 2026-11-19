@@ -1,5 +1,5 @@
 import type { Vessel } from '../api/mpcApi';
-import { computeMaritimeRoute, distanceNm, MARITIME_PORTS } from './seaRouter';
+import { computeMaritimeRoute, distanceNm, estimateRepairApproach, MARITIME_PORTS, type RepairApproach } from './seaRouter';
 
 const HOUR_MS = 3_600_000;
 const DEMO_OPEN_HOUR_UTC = 8;
@@ -11,9 +11,13 @@ export function estimatePortCall(vessel: Vessel, now: number) {
   if (!port) return null;
 
   const route = computeMaritimeRoute(vessel);
+  return { port, ...estimatePortTiming(vessel, now, route.destinationPort ? route.remainingNm : null) };
+}
+
+export function estimatePortTiming(vessel: Vessel, now: number, remainingNm: number | null) {
   const speed = vessel.speedKnots;
-  const travelMs = route.destinationPort && route.remainingNm > 0 && speed !== null && speed > 0
-    ? route.remainingNm / speed * HOUR_MS
+  const travelMs = remainingNm !== null && remainingNm > 0 && speed !== null && speed > 0
+    ? remainingNm / speed * HOUR_MS
     : NaN;
   const arrival = new Date(now + travelMs);
   const arrivalMs = arrival.getTime();
@@ -28,8 +32,7 @@ export function estimatePortCall(vessel: Vessel, now: number) {
     : null;
 
   return {
-    port,
-    remainingNm: route.destinationPort ? route.remainingNm : null,
+    remainingNm,
     estimatedArrivalUtc,
     reportedArrivalUtc: vessel.eta,
     demoWaitMinutes,
@@ -198,7 +201,7 @@ export async function getRepairPorts(signal: AbortSignal): Promise<RepairPort[]>
   throw new Error('Repair port directory unavailable');
 }
 
-export function findNearbyRepairPorts(vessel: Vessel, ports: RepairPort[]) {
+export function findNearbyRepairPorts(vessel: Vessel, ports: RepairPort[], limit = 3) {
   const fits: NearbyRepairPort[] = [];
   const needsConfirmation: NearbyRepairPort[] = [];
   const origin = portCoordinates(vessel.latitude, vessel.longitude);
@@ -218,5 +221,43 @@ export function findNearbyRepairPorts(vessel: Vessel, ports: RepairPort[]) {
     }
   }
   const nearest = (a: NearbyRepairPort, b: NearbyRepairPort) => a.distanceNm - b.distanceNm || a.id - b.id;
-  return { fits: fits.sort(nearest).slice(0, 3), needsConfirmation: needsConfirmation.sort(nearest).slice(0, 3) };
+  return { fits: fits.sort(nearest).slice(0, limit), needsConfirmation: needsConfirmation.sort(nearest).slice(0, limit) };
+}
+
+interface AutomaticRepairPort {
+  port: NearbyRepairPort;
+  route: RepairApproach | null;
+  failed: boolean;
+}
+
+// The RFQ and the map share the most recent completed calculation. A change
+// to the directory, ship position or fit constraints requires a fresh choice.
+let lastAutomatic: { ports: RepairPort[]; key: string; result: AutomaticRepairPort } | undefined;
+
+export async function resolveAutomaticRepairPort(vessel: Vessel, ports: RepairPort[], signal: AbortSignal): Promise<AutomaticRepairPort | null> {
+  signal.throwIfAborted();
+  const origin = portCoordinates(vessel.latitude, vessel.longitude);
+  if (!origin) return null;
+  const key = JSON.stringify([origin, vessel.lengthOverall, vessel.beam, vessel.maxDraught]);
+  if (lastAutomatic?.ports === ports && lastAutomatic.key === key) return lastAutomatic.result;
+  const { fits } = findNearbyRepairPorts(vessel, ports, Infinity);
+  if (!fits.length) return null;
+  let result: AutomaticRepairPort = { port: fits[0], route: null, failed: false };
+  try {
+    for (const port of fits) {
+      const route = await estimateRepairApproach(origin, port.coords, signal);
+      signal.throwIfAborted();
+      if (route) {
+        result = { port, route, failed: false };
+        break;
+      }
+    }
+  } catch {
+    signal.throwIfAborted();
+    // A missing coastline affects every candidate. Keep the nearest confirmed
+    // fit available to Procurement and leave the map able to retry.
+    return { ...result, failed: true };
+  }
+  lastAutomatic = { ports, key, result };
+  return result;
 }

@@ -9,7 +9,7 @@ import ShipModel from './shipModel';
 import { useVessels } from '../hooks/useVessel';
 import { useOrders } from '../hooks/useOrder';
 import { usePortWeather } from '../hooks/usePortWeather';
-import { DEMO_BERTH_HOURS, estimatePortCall, findNearbyRepairPorts, getRepairPorts } from '../utils/portCalls';
+import { DEMO_BERTH_HOURS, estimatePortCall, getRepairPorts, resolveAutomaticRepairPort } from '../utils/portCalls';
 import { mpcApi, VESSEL_CATEGORIES, type AiSettings, type OrderDraft, type RepairPortSelection, type Vessel } from '../api/mpcApi';
 
 type SectionId = 'stern' | 'midship' | 'bow';
@@ -406,12 +406,16 @@ export const ShipDashboard: React.FC = () => {
   }
 
   async function resolveRepairPort(vessel: Vessel): Promise<RepairPortSelection | undefined> {
-    if (repairPortChoices[vessel.id]) return repairPortChoices[vessel.id];
+    const selectedPort = repairPortChoices[vessel.id] ?? vessel.repairDestination;
+    if (selectedPort) return selectedPort;
     if (vessel.latitude == null || vessel.longitude == null) return undefined;
-    const directory = await getRepairPorts(AbortSignal.timeout(18_000)).catch(() => []);
-    const nearest = findNearbyRepairPorts(vessel, directory).fits[0];
-    if (!nearest) return undefined;
-    return { code: nearest.code, name: nearest.name, latitude: nearest.coords[0], longitude: nearest.coords[1] };
+    const signal = AbortSignal.timeout(18_000);
+    const selection = await getRepairPorts(signal)
+      .then((directory) => resolveAutomaticRepairPort(vessel, directory, signal))
+      .catch(() => null);
+    if (!selection) return undefined;
+    const { code, name, coords } = selection.port;
+    return { code, name, latitude: coords[0], longitude: coords[1] };
   }
 
   const handleSimulateFault = async () => {
