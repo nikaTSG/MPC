@@ -264,7 +264,6 @@ export const ShipDashboard: React.FC = () => {
     vessels,
     selectedVessel,
     setSelectedVesselId,
-    vesselsNeedingMaintenance,
     loading: vesselsLoading,
     error: vesselsError,
     reportVesselFault,
@@ -272,6 +271,16 @@ export const ShipDashboard: React.FC = () => {
     refetch: refetchVessels,
     addVessel,
   } = useVessels();
+
+  const maintenanceAlerts = vessels.flatMap((vessel) => {
+    const subsystems = Object.values(deriveSectionsFromVessel(vessel)).flatMap((section) => section.subsystems);
+    const reading = subsystems.reduce(
+      (lowest, subsystem) => subsystem.health < lowest.health ? subsystem : lowest,
+      { name: 'Hull health', health: vessel.health },
+    );
+    const statusLabel = getStatusLabel(reading.health);
+    return statusLabel ? [{ vessel, reading, statusLabel }] : [];
+  });
 
   const {
     orders,
@@ -758,7 +767,7 @@ export const ShipDashboard: React.FC = () => {
       <aside className="dashboard-sidebar" aria-label="Fleet operations">
         <section className="sidebar-panel" aria-labelledby="fleet-alerts">
           <h2 id="fleet-alerts">Fleet maintenance alerts</h2>
-          {vesselsLoading || vesselsError || vesselsNeedingMaintenance.length === 0 ? (
+          {vesselsLoading || vesselsError || maintenanceAlerts.length === 0 ? (
             <p className="sidebar-empty" role="status">
               {vesselsLoading ? 'Loading fleet…' : vesselsError ? 'Alerts unavailable.' : (
                 vessels.length === 0 ? 'No vessels available to monitor.' : 'No maintenance alerts.'
@@ -766,7 +775,7 @@ export const ShipDashboard: React.FC = () => {
             </p>
           ) : (
             <ul className="fleet-alerts">
-              {vesselsNeedingMaintenance.map((vessel) => (
+              {maintenanceAlerts.map(({ vessel, reading, statusLabel }) => (
                 <li key={vessel.id}>
                   <button
                     type="button"
@@ -774,9 +783,9 @@ export const ShipDashboard: React.FC = () => {
                     aria-pressed={selectedVessel?.id === vessel.id}
                   >
                     <span className="fleet-alert-name">{vessel.name}</span>
-                    <strong style={{ color: getHealthColor(vessel.health) }}>{vessel.health}%</strong>
+                    <strong style={{ color: getHealthColor(reading.health) }}>{reading.health}%</strong>
                     <small>IMO {vessel.imo}</small>
-                    <small>Low hull health</small>
+                    <small>{reading.name} · {statusLabel}</small>
                   </button>
                 </li>
               ))}

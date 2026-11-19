@@ -46,13 +46,10 @@ export function useVessels() {
   const selectedVessel =
     vessels.find((v) => v.id === selectedVesselId) ?? null;
 
-  const vesselsNeedingMaintenance = vessels.filter((vessel) => vessel.health < 70);
-
   return {
     vessels,
     selectedVessel,
     setSelectedVesselId,
-    vesselsNeedingMaintenance,
     loading,
     error,
     refetch: fetchVessels,
