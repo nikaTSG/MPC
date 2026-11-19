@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { INTAKE_CATEGORIES, MAX_PDF_SIZE, mpcApi } from '../api/mpcApi';
 import type { AiSettings, IntakeReview, IntakeSource, Vessel } from '../api/mpcApi';
@@ -33,6 +33,7 @@ function readBase64(file: File): Promise<string> {
 
 export default function AiPdfWorkflow({ settings, vessels, blocked, onBusyChange, onDraftsCreated, onViewDrafts }: AiPdfWorkflowProps) {
   const [file, setFile] = useState<File | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
   const [body, setBody] = useState('');
   const [report, setReport] = useState<{ review: IntakeReview; source: IntakeSource } | null>(null);
   const [vesselId, setVesselId] = useState<number | null>(null);
@@ -119,12 +120,21 @@ export default function AiPdfWorkflow({ settings, vessels, blocked, onBusyChange
               clearReview();
             }} />
           </label>
-          <label className="intake-wide">PDF attachment (up to 5 MB)
-            <input type="file" accept="application/pdf,.pdf" onChange={(event) => {
-              setFile(event.target.files?.[0] ?? null);
+          <div className="intake-wide">
+            <label>PDF attachment (up to 5 MB)
+              <input ref={fileInput} type="file" accept="application/pdf,.pdf" onChange={(event) => {
+                setFile(event.target.files?.[0] ?? null);
+                clearReview();
+              }} />
+            </label>
+            {file && <button type="button" className="dashboard-button remove-intake-pdf" onClick={() => {
+              const input = fileInput.current;
+              if (input) input.value = '';
+              setFile(null);
               clearReview();
-            }} />
-          </label>
+              input?.focus();
+            }}>Remove PDF</button>}
+          </div>
         </fieldset>
         <button type="submit" className="dashboard-button primary-button" disabled={!settings || !canAnalyze || busy}>
           {action === 'read' ? 'Analyzing…' : action === 'process' ? 'Processing…' : 'Process intake'}

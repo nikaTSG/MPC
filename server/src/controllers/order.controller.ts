@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import { orderService } from '../services/order.service.js';
+import { isAuthorizedBrowserPost } from '../routes/ai.route.js';
 
 // Narrows Express 5's `string | string[] | undefined` to a positive integer
 function parseId(raw: string | string[] | undefined): number | null {
@@ -67,9 +68,27 @@ export const orderController = {
 
     try {
       const rejected = await orderService.rejectOrder(id);
+      if (!rejected) return res.status(409).json({ error: 'No rejectable order was found.' });
       return res.json(rejected);
     } catch (error) {
       return res.status(500).json({ error: 'Failed to reject order' });
+    }
+  },
+
+  async completeRepair(req: Request, res: Response) {
+    if (!isAuthorizedBrowserPost(req)) return res.status(403).json({ error: 'Request origin or network is not allowed.' });
+    const id = parseId(req.params.id);
+    const { measuredHealth, expectedHealth } = req.body ?? {};
+    const percentage = (value: unknown): value is number =>
+      typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 100;
+    if (!id || !percentage(measuredHealth) || !percentage(expectedHealth)) {
+      return res.status(400).json({ error: 'Enter a whole-number health percentage from 0 to 100.' });
+    }
+    try {
+      const result = await orderService.completeRepair(id, measuredHealth, expectedHealth);
+      return res.status(result.status).json(result.body);
+    } catch {
+      return res.status(500).json({ error: 'Failed to save the repair and vessel health.' });
     }
   },
 };

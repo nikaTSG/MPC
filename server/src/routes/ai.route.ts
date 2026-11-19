@@ -128,7 +128,7 @@ function sameOrigin(request: Request): URL | null {
   }
 }
 
-function isAuthorizedBrowserPost(request: Request): boolean {
+export function isAuthorizedBrowserPost(request: Request): boolean {
   const origin = sameOrigin(request);
   if (!origin) return false;
 

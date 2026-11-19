@@ -134,15 +134,16 @@ function RepairPortList({ ports, label, selectedId, onSelect }: {
   );
 }
 
-// Tracks zoom level and pans smoothly to selected vessel without overriding user zoom
 const MapCameraAndZoomController: React.FC<{
   center: [number, number];
   worldwide: boolean;
+  route: { coordinates: ReturnType<typeof computeMaritimeRoute>['coordinates'] } | null;
   onZoomChange: (zoom: number) => void;
-}> = ({ center, worldwide, onZoomChange }) => {
+}> = ({ center, worldwide, route, onZoomChange }) => {
   const map = useMap();
   const [latitude, longitude] = center;
   const vesselZoom = useRef<number | null>(null);
+  const showingWorld = useRef(false);
 
   useMapEvents({
     zoomend: () => {
@@ -152,12 +153,22 @@ const MapCameraAndZoomController: React.FC<{
 
   useEffect(() => {
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (route) {
+      showingWorld.current = false;
+      vesselZoom.current ??= map.getZoom();
+      map.stop();
+      map.invalidateSize({ pan: false });
+      map.fitBounds(L.latLngBounds(route.coordinates), { padding: [38, 36], maxZoom: 8, animate: !reducedMotion });
+      return;
+    }
     if (worldwide) {
-      if (vesselZoom.current !== null) return;
-      vesselZoom.current = map.getZoom();
+      if (showingWorld.current) return;
+      showingWorld.current = true;
+      vesselZoom.current ??= map.getZoom();
       map.fitBounds([[-60, -175], [78, 175]], { padding: [12, 12], animate: !reducedMotion });
       return;
     }
+    showingWorld.current = false;
     const zoom = vesselZoom.current ?? map.getZoom();
     vesselZoom.current = null;
     if (reducedMotion) {
@@ -165,7 +176,7 @@ const MapCameraAndZoomController: React.FC<{
     } else {
       map.flyTo([latitude, longitude], zoom, { duration: 1.0 });
     }
-  }, [latitude, longitude, map, worldwide]);
+  }, [latitude, longitude, map, worldwide, route]);
 
   useEffect(() => {
     const observer = new ResizeObserver(() => map.invalidateSize({ pan: false }));
@@ -225,6 +236,10 @@ export const LiveMap: React.FC<LiveMapProps> = ({
   const [showWorldwide, setShowWorldwide] = useState(false);
   const [worldwidePorts, setWorldwidePorts] = useState<WorldPort[] | null>(null);
   const [worldwideError, setWorldwideError] = useState(false);
+  const [routeSelection, setRouteSelection] = useState<{
+    vesselId: number;
+    coordinates: ReturnType<typeof computeMaritimeRoute>['coordinates'];
+  } | null>(null);
   const [repairVesselId, setRepairVesselId] = useState<number | null>(null);
   const [repairPorts, setRepairPorts] = useState<RepairPort[] | null>(null);
   const [repairError, setRepairError] = useState(false);
@@ -277,6 +292,8 @@ export const LiveMap: React.FC<LiveMapProps> = ({
   };
 
   const routeData = activeShip ? computeMaritimeRoute(activeShip) : null;
+  const routeToFrame = routeSelection && routeSelection.vesselId === activeShip?.id && routeSelection.coordinates.length > 1
+    ? routeSelection : null;
 
   const mapCenter: [number, number] = activeShip
     ? [activeShip.latitude, activeShip.longitude]
@@ -391,11 +408,11 @@ export const LiveMap: React.FC<LiveMapProps> = ({
           </strong>
           {routeData?.destinationPort && (
             <span style={mapStyles.destBadge}>
-              {routeData.destinationPort.name} ({routeData.destinationPort.code}) ·{' '}
+              Estimated route to {routeData.destinationPort.name} ·{' '}
               {routeData.remainingNm.toLocaleString()} NM
             </span>
           )}
-          {!showVessels && (
+          {!showVessels && !routeToFrame && (
             <span style={mapStyles.zoomHintBadge}>
               Zoom in to show vessels
             </span>
@@ -422,6 +439,7 @@ export const LiveMap: React.FC<LiveMapProps> = ({
           <div className="port-layer-control">
             <button type="button" className="dashboard-button" aria-pressed={showWorldwide} onClick={() => {
               setWorldwideError(false);
+              setRouteSelection(null);
               setShowWorldwide(!showWorldwide);
             }}>Worldwide ports</button>
             {showWorldwide && (
@@ -454,7 +472,11 @@ export const LiveMap: React.FC<LiveMapProps> = ({
               </p>
             )}
           </>
-        ) : <p className="port-call-note">No MPC destination for this vessel.</p>}
+        ) : <p className="port-call-note">
+          {activeShip?.destinationPortCode
+            ? `No estimated route available for ${activeShip.destinationPortCode}.`
+            : 'No destination assigned.'}
+        </p>}
       </section>
 
       <div className="map-area">
@@ -465,7 +487,7 @@ export const LiveMap: React.FC<LiveMapProps> = ({
             minZoom={1}
             style={{ position: 'absolute', inset: 0 }}
           >
-            <MapCameraAndZoomController center={mapCenter} worldwide={showWorldwide} onZoomChange={setCurrentZoom} />
+            <MapCameraAndZoomController center={mapCenter} worldwide={showWorldwide} route={routeToFrame} onZoomChange={setCurrentZoom} />
 
             <TileLayer
               attribution="Tiles &copy; Esri"
@@ -489,6 +511,7 @@ export const LiveMap: React.FC<LiveMapProps> = ({
               <>
                 <Polyline
                   positions={routeData.coordinates}
+                  interactive={false}
                   pathOptions={{
                     color: activeStatusColor,
                     weight: 9,
@@ -499,15 +522,26 @@ export const LiveMap: React.FC<LiveMapProps> = ({
                 />
                 <Polyline
                   positions={routeData.coordinates}
+                  interactive={false}
+                  className="cyber-route-line"
                   pathOptions={{
                     color: activeStatusColor,
                     weight: 2.5,
                     opacity: 0.95,
                     dashArray: '10, 8',
-                    className: 'cyber-route-line',
                   }}
                 />
               </>
+            )}
+
+            {routeData?.destinationPort && routeData.coordinates.length > 1 && (
+              <CircleMarker center={routeData.destinationPort.coords} radius={5}
+                pathOptions={{ color: activeStatusColor, fillColor: '#0B1320', fillOpacity: 1, weight: 2 }}>
+                <Popup>
+                  <strong>{routeData.destinationPort.name}</strong>
+                  <p>Recorded destination · {routeData.destinationPort.code}</p>
+                </Popup>
+              </CircleMarker>
             )}
 
             {/* Waypoint Nodes along active route */}
@@ -526,8 +560,7 @@ export const LiveMap: React.FC<LiveMapProps> = ({
             ))}
 
             {/* Fleet Vessel Markers with Side-Anchored Callout HUD */}
-            {showVessels &&
-              mappableVessels.map((vessel) => {
+            {mappableVessels.filter(({ id }) => showVessels || Boolean(routeToFrame && activeShip?.id === id)).map((vessel) => {
                 const isSelected = vessel.id === activeShip?.id;
                 const isCritical = vessel.health < 55;
                 const markerColor = getVesselStatusColor(vessel.health);
@@ -537,6 +570,7 @@ export const LiveMap: React.FC<LiveMapProps> = ({
                     key={vessel.id}
                     title={vessel.name}
                     position={[vessel.latitude, vessel.longitude]}
+                    zIndexOffset={isSelected ? 1000 : 0}
                     icon={createCyberShipIcon(
                       markerColor,
                       vessel.heading ?? 0,
@@ -545,6 +579,7 @@ export const LiveMap: React.FC<LiveMapProps> = ({
                     )}
                     eventHandlers={{
                       click: () => {
+                        setRouteSelection({ vesselId: vessel.id, coordinates: computeMaritimeRoute(vessel).coordinates });
                         setRepairVesselId(vesselNeedsRepair(vessel) ? vessel.id : null);
                         setOpenRepairPortId(null);
                         setRepairError(false);

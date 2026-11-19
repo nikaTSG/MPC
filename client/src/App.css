@@ -681,6 +681,7 @@
 .order-list,
 .order-editor,
 .order-editor label,
+.repair-job-list,
 .dashboard-sidebar {
   display: grid;
   gap: 12px;
@@ -747,6 +748,47 @@
 
 .order-card h2 {
   overflow-wrap: anywhere;
+}
+
+.repair-job-list h3 {
+  margin: 0;
+  font-size: 0.9375rem;
+  overflow-wrap: anywhere;
+}
+
+.repair-job-state {
+  align-self: start;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  padding: 3px 8px;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.repair-health-entry {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px 16px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+
+.repair-health-entry label {
+  display: grid;
+  gap: 4px;
+}
+
+.repair-health-entry input {
+  width: 100%;
+}
+
+.repair-health-entry .dashboard-error {
+  flex-basis: 100%;
+}
+
+.remove-intake-pdf {
+  margin-top: 8px;
 }
 
 .order-editor {

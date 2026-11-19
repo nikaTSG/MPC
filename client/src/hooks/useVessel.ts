@@ -24,14 +24,14 @@ export function useVessels() {
     fetchVessels();
   }, [fetchVessels]);
 
+  const applyVessel = (vessel: Vessel) => {
+    setVessels((previous) => previous.map((item) => item.id === vessel.id ? vessel : item));
+  };
+
   // Trigger a fault report and immediately sync the ship's new health on the map
   const reportVesselFault = async (payload: FaultReportPayload, settings: AiSettings) => {
     const result = await mpcApi.submitFaultReport(payload, settings);
-
-    setVessels((prev) =>
-      prev.map((v) => (v.id === payload.vesselId ? result.healthUpdate.vessel : v))
-    );
-
+    applyVessel(result.healthUpdate.vessel);
     return result;
   };
 
@@ -59,6 +59,7 @@ export function useVessels() {
     error,
     refetch: fetchVessels,
     reportVesselFault,
+    applyVessel,
     addVessel,
   };
 }

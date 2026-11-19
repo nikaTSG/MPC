@@ -126,7 +126,7 @@ export interface OrderDraft {
   subject: string;
   body: string;
   urgency: 'LOW' | 'NORMAL' | 'CRITICAL';
-  status: 'PENDING_APPROVAL' | 'SENT' | 'REJECTED';
+  status: 'PENDING_APPROVAL' | 'SENT' | 'REJECTED' | 'REPAIR_COMPLETED';
   items: { partNumber: string; partName: string; quantity: number; notes?: string }[];
   vessel?: { id: number; name: string; imo: string };
   supplier?: { id: number; name: string; email: string; portLocation?: string };
@@ -314,6 +314,12 @@ export const mpcApi = {
   approveOrder: (id: number) =>
     request<{ message: string; previewUrl?: string }>(`/api/v1/orders/${id}/approve`, {
       method: 'POST',
+    }),
+
+  completeRepair: (id: number, measuredHealth: number, expectedHealth: number) =>
+    request<{ orderId: number; vessel: Vessel }>(`/api/v1/orders/${id}/complete-repair`, {
+      method: 'POST',
+      body: JSON.stringify({ measuredHealth, expectedHealth }),
     }),
 
   updateOrderDraft: (id: number, updates: { subject?: string; body?: string }) =>
