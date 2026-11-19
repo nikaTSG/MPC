@@ -1,5 +1,12 @@
 # MPC
 
+```text
+       ╔════════════════════════╗
+PORT ◀═╣    PETROS BIG BOSS     ╠═▶ STARBOARD
+       ╚════════════════════════╝
+           MPC · BRIDGE COMMAND
+```
+
 yello koukis && vasiliki 
 to settara magkes
 geia sou peter 
