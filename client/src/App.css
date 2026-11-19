@@ -286,6 +286,28 @@
   gap: 12px;
 }
 
+.map-layer-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.map-unpositioned {
+  padding: 0 2px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.map-unpositioned summary {
+  width: fit-content;
+  cursor: pointer;
+}
+
+.map-unpositioned ul {
+  margin: 6px 0 0;
+  padding-inline-start: 1.2rem;
+}
+
 .map-viewport {
   position: relative;
   flex: 999 1 465px;

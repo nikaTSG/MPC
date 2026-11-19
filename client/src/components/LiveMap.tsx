@@ -8,7 +8,6 @@ import {
   Polyline,
   CircleMarker,
   useMap,
-  useMapEvents,
 } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -29,7 +28,14 @@ interface LiveMapProps {
 }
 
 const INITIAL_ZOOM = 4;
-const MIN_VESSEL_ZOOM = 3;
+
+type PositionedVessel = Vessel & { latitude: number; longitude: number };
+
+function hasPosition(vessel: Vessel): vessel is PositionedVessel {
+  return vessel.latitude !== null && vessel.longitude !== null &&
+    Number.isFinite(vessel.latitude) && Math.abs(vessel.latitude) <= 90 &&
+    Number.isFinite(vessel.longitude) && Math.abs(vessel.longitude) <= 180;
+}
 
 const utcTime = new Intl.DateTimeFormat('en-GB', {
   dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC',
@@ -138,18 +144,17 @@ const MapCameraAndZoomController: React.FC<{
   center: [number, number];
   worldwide: boolean;
   route: { coordinates: ReturnType<typeof computeMaritimeRoute>['coordinates'] } | null;
-  onZoomChange: (zoom: number) => void;
-}> = ({ center, worldwide, route, onZoomChange }) => {
+  fleetRequest: { selectionId: number | null } | null;
+  fleetBounds: L.LatLngBounds | null;
+}> = ({ center, worldwide, route, fleetRequest, fleetBounds }) => {
   const map = useMap();
   const [latitude, longitude] = center;
+  const south = fleetBounds?.getSouth();
+  const west = fleetBounds?.getWest();
+  const north = fleetBounds?.getNorth();
+  const east = fleetBounds?.getEast();
   const vesselZoom = useRef<number | null>(null);
   const showingWorld = useRef(false);
-
-  useMapEvents({
-    zoomend: () => {
-      onZoomChange(map.getZoom());
-    },
-  });
 
   useEffect(() => {
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -159,6 +164,14 @@ const MapCameraAndZoomController: React.FC<{
       map.stop();
       map.invalidateSize({ pan: false });
       map.fitBounds(L.latLngBounds(route.coordinates), { padding: [38, 36], maxZoom: 8, animate: !reducedMotion });
+      return;
+    }
+    if (fleetRequest && south !== undefined && west !== undefined && north !== undefined && east !== undefined) {
+      showingWorld.current = false;
+      vesselZoom.current ??= map.getZoom();
+      map.stop();
+      map.invalidateSize({ pan: false });
+      map.fitBounds([[south, west], [north, east]], { padding: [28, 30], maxZoom: INITIAL_ZOOM, animate: !reducedMotion });
       return;
     }
     if (worldwide) {
@@ -176,7 +189,7 @@ const MapCameraAndZoomController: React.FC<{
     } else {
       map.flyTo([latitude, longitude], zoom, { duration: 1.0 });
     }
-  }, [latitude, longitude, map, worldwide, route]);
+  }, [latitude, longitude, map, worldwide, route, fleetRequest, south, west, north, east]);
 
   useEffect(() => {
     const observer = new ResizeObserver(() => map.invalidateSize({ pan: false }));
@@ -232,8 +245,10 @@ export const LiveMap: React.FC<LiveMapProps> = ({
   portCall,
   portWeather,
 }) => {
-  const [currentZoom, setCurrentZoom] = useState<number>(INITIAL_ZOOM);
   const [showWorldwide, setShowWorldwide] = useState(false);
+  const [fleetRequest, setFleetRequest] = useState<{ selectionId: number | null } | null>(
+    () => ({ selectionId: selectedVessel?.id ?? null }),
+  );
   const [worldwidePorts, setWorldwidePorts] = useState<WorldPort[] | null>(null);
   const [worldwideError, setWorldwideError] = useState(false);
   const [routeSelection, setRouteSelection] = useState<{
@@ -255,10 +270,13 @@ export const LiveMap: React.FC<LiveMapProps> = ({
     return () => controller.abort();
   }, [showWorldwide, worldwidePorts]);
 
-  const mappableVessels = vessels.filter(
-    (v): v is Vessel & { latitude: number; longitude: number } =>
-      v.latitude !== null && v.longitude !== null
-  );
+  const mappableVessels = vessels.filter(hasPosition);
+  const unpositionedVessels = vessels.filter((vessel) => !hasPosition(vessel));
+  const fleetOverview = fleetRequest && (fleetRequest.selectionId === null || fleetRequest.selectionId === selectedVessel?.id)
+    ? fleetRequest : null;
+  const fleetBounds = fleetOverview && mappableVessels.length > 0
+    ? L.latLngBounds(mappableVessels.map((vessel) => [vessel.latitude, vessel.longitude]))
+    : null;
 
   const activeShip = selectedVessel
     ? mappableVessels.find((v) => v.id === selectedVessel.id) ?? null
@@ -301,7 +319,6 @@ export const LiveMap: React.FC<LiveMapProps> = ({
 
   const activeHealth = activeShip?.health ?? 100;
   const activeStatusColor = getVesselStatusColor(activeHealth);
-  const showVessels = currentZoom >= MIN_VESSEL_ZOOM;
 
   return (
     <div style={mapStyles.wrapper}>
@@ -404,17 +421,13 @@ export const LiveMap: React.FC<LiveMapProps> = ({
       <div style={mapStyles.infoBar}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
           <strong style={{ color: '#F8FAFC', fontSize: '14px', letterSpacing: '0.4px' }}>
-            {activeShip ? `${activeShip.name} (IMO ${activeShip.imo})` : 'No vessel positions'}
+            {activeShip ? `${activeShip.name} (IMO ${activeShip.imo})`
+              : selectedVessel ? `${selectedVessel.name} · Position unavailable` : 'No vessel positions'}
           </strong>
           {routeData?.destinationPort && (
             <span style={mapStyles.destBadge}>
               Estimated route to {routeData.destinationPort.name} ·{' '}
               {routeData.remainingNm.toLocaleString()} NM
-            </span>
-          )}
-          {!showVessels && !routeToFrame && (
-            <span style={mapStyles.zoomHintBadge}>
-              Zoom in to show vessels
             </span>
           )}
         </div>
@@ -430,6 +443,15 @@ export const LiveMap: React.FC<LiveMapProps> = ({
         )}
       </div>
 
+      {unpositionedVessels.length > 0 && (
+        <details className="map-unpositioned">
+          <summary>{unpositionedVessels.length} {unpositionedVessels.length === 1 ? 'vessel' : 'vessels'} without a position</summary>
+          <ul>
+            {unpositionedVessels.map((vessel) => <li key={vessel.id}>{vessel.name}</li>)}
+          </ul>
+        </details>
+      )}
+
       <section className="port-call" aria-label="Port call">
         <div className="port-call-heading">
           <div>
@@ -437,11 +459,19 @@ export const LiveMap: React.FC<LiveMapProps> = ({
             {portCall && <p>{portCall.port.name} · {portCall.port.code}</p>}
           </div>
           <div className="port-layer-control">
-            <button type="button" className="dashboard-button" aria-pressed={showWorldwide} onClick={() => {
-              setWorldwideError(false);
-              setRouteSelection(null);
-              setShowWorldwide(!showWorldwide);
-            }}>Worldwide ports</button>
+            <div className="map-layer-buttons">
+              <button type="button" className="dashboard-button" disabled={mappableVessels.length === 0} onClick={() => {
+                setRouteSelection(null);
+                setRepairVesselId(null);
+                setFleetRequest({ selectionId: selectedVessel?.id ?? null });
+              }}>Fit fleet</button>
+              <button type="button" className="dashboard-button" aria-pressed={showWorldwide} onClick={() => {
+                setWorldwideError(false);
+                setRouteSelection(null);
+                setFleetRequest(null);
+                setShowWorldwide(!showWorldwide);
+              }}>Worldwide ports</button>
+            </div>
             {showWorldwide && (
               <small role="status">
                 {worldwideError ? 'Couldn’t load ports. Toggle to retry.' : worldwidePorts
@@ -487,7 +517,8 @@ export const LiveMap: React.FC<LiveMapProps> = ({
             minZoom={1}
             style={{ position: 'absolute', inset: 0 }}
           >
-            <MapCameraAndZoomController center={mapCenter} worldwide={showWorldwide} route={routeToFrame} onZoomChange={setCurrentZoom} />
+            <MapCameraAndZoomController center={mapCenter} worldwide={showWorldwide} route={routeToFrame}
+              fleetRequest={fleetOverview} fleetBounds={fleetBounds} />
 
             <TileLayer
               attribution="Tiles &copy; Esri"
@@ -560,7 +591,7 @@ export const LiveMap: React.FC<LiveMapProps> = ({
             ))}
 
             {/* Fleet Vessel Markers with Side-Anchored Callout HUD */}
-            {mappableVessels.filter(({ id }) => showVessels || Boolean(routeToFrame && activeShip?.id === id)).map((vessel) => {
+            {mappableVessels.map((vessel) => {
                 const isSelected = vessel.id === activeShip?.id;
                 const isCritical = vessel.health < 55;
                 const markerColor = getVesselStatusColor(vessel.health);
@@ -579,6 +610,7 @@ export const LiveMap: React.FC<LiveMapProps> = ({
                     )}
                     eventHandlers={{
                       click: () => {
+                        setFleetRequest(null);
                         setRouteSelection({ vesselId: vessel.id, coordinates: computeMaritimeRoute(vessel).coordinates });
                         setRepairVesselId(vesselNeedsRepair(vessel) ? vessel.id : null);
                         setOpenRepairPortId(null);
@@ -742,11 +774,6 @@ const mapStyles: Record<string, React.CSSProperties> = {
     color: '#BAE6FD',
     border: '1px solid #263B51',
     padding: '3px 8px',
-    fontSize: '11px',
-    fontFamily: 'monospace',
-  },
-  zoomHintBadge: {
-    color: '#94A3B8',
     fontSize: '11px',
     fontFamily: 'monospace',
   },
