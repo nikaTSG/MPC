@@ -12,6 +12,13 @@ dist
 dist-ssr
 *.local
 
+# Local install artifacts
+/package-lock.json
+/server/.agents/
+/server/.claude/
+/server/.cursor/
+/server/.devin/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
