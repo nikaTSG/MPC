@@ -79,9 +79,9 @@ export const VesselBlueprint: React.FC<VesselBlueprintProps> = ({
       {/* Top CAD Spec Strip */}
       <div style={bpStyles.hudTopBar}>
         <div style={bpStyles.hudSpecGroup}>
-          <span style={bpStyles.hudTag}>GA-BLUEPRINT // X-RAY</span>
-          <span>CLASS: {vessel?.classSociety ?? 'DNV-GL'}</span>
-          <span>TYPE: {vessel?.vesselType ?? 'BULK_CARRIER'}</span>
+          {vessel && <span>IMO {vessel.imo}</span>}
+          {vessel?.classSociety && <span>Class {vessel.classSociety}</span>}
+          {vessel && <span>{vessel.vesselType.replaceAll('_', ' ')}</span>}
         </div>
         <div style={bpStyles.hudSpecGroup}>
           <span>LOA: {vessel?.lengthOverall ?? 229}m</span>
@@ -96,7 +96,7 @@ export const VesselBlueprint: React.FC<VesselBlueprintProps> = ({
         height="305"
         viewBox="0 0 940 320"
         fill="none"
-        style={{ display: 'block' }}
+        style={{ display: 'block', height: 'auto', maxHeight: '305px' }}
       >
         <defs>
           {/* Engineering Grid Pattern */}
@@ -513,11 +513,9 @@ export const VesselBlueprint: React.FC<VesselBlueprintProps> = ({
 
       {/* Bottom Telemetry Caption */}
       <div style={bpStyles.footerRow}>
-        <span>CLICK HULL SECTION (STERN / MIDSHIP / BOW) TO INSPECT SUBSYSTEMS</span>
+        <span>Hull health</span>
         <span style={{ color: getHealthColor(overallHp), fontWeight: 700 }}>
-          {vessel
-            ? `${vessel.name} // INTEGRITY ${overallHp}% // ${vessel.operationalStatus}`
-            : 'AWAITING TELEMETRY'}
+          {vessel ? `${overallHp}%` : 'Unavailable'}
         </span>
       </div>
     </div>
@@ -530,6 +528,9 @@ const bpStyles: Record<string, React.CSSProperties> = {
     flexDirection: 'column',
     gap: '8px',
     width: '100%',
+    padding: '12px',
+    backgroundColor: '#09121F',
+    border: '1px solid #263B51',
   },
   hudTopBar: {
     display: 'flex',
@@ -544,16 +545,9 @@ const bpStyles: Record<string, React.CSSProperties> = {
   },
   hudSpecGroup: {
     display: 'flex',
+    flexWrap: 'wrap',
     alignItems: 'center',
     gap: '12px',
-  },
-  hudTag: {
-    color: '#22D3EE',
-    backgroundColor: 'rgba(34, 211, 238, 0.1)',
-    border: '1px solid rgba(34, 211, 238, 0.3)',
-    padding: '2px 7px',
-    borderRadius: '4px',
-    fontWeight: 700,
   },
   footerRow: {
     display: 'flex',
@@ -563,7 +557,7 @@ const bpStyles: Record<string, React.CSSProperties> = {
     gap: '8px',
     fontSize: '11px',
     fontFamily: 'monospace',
-    color: '#64748B',
+    color: '#94A3B8',
     padding: '0 4px',
   },
 };

@@ -248,19 +248,18 @@ export const LiveMap: React.FC<LiveMapProps> = ({
       {/* Top Tactical Telemetry HUD */}
       <div style={mapStyles.infoBar}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-          <span style={mapStyles.liveBadge}>● SAT-AIS TELEMETRY</span>
           <strong style={{ color: '#F8FAFC', fontSize: '14px', letterSpacing: '0.4px' }}>
-            {activeShip ? `${activeShip.name} [IMO ${activeShip.imo}]` : 'NO SIGNAL'}
+            {activeShip ? `${activeShip.name} (IMO ${activeShip.imo})` : 'No vessel positions'}
           </strong>
           {routeData?.destinationPort && (
             <span style={mapStyles.destBadge}>
-              DEST: {routeData.destinationPort.code} ({routeData.destinationPort.name}) •{' '}
+              {routeData.destinationPort.name} ({routeData.destinationPort.code}) ·{' '}
               {routeData.remainingNm.toLocaleString()} NM
             </span>
           )}
           {!showVessels && (
             <span style={mapStyles.zoomHintBadge}>
-              ZOOM IN (Z≥{MIN_VESSEL_ZOOM}) TO SHOW VESSELS
+              Zoom in to show vessels
             </span>
           )}
         </div>
@@ -282,7 +281,7 @@ export const LiveMap: React.FC<LiveMapProps> = ({
           center={mapCenter}
           zoom={INITIAL_ZOOM}
           minZoom={2}
-          style={{ height: '100%', width: '100%', borderRadius: '10px' }}
+          style={{ height: '100%', width: '100%' }}
         >
           <MapCameraAndZoomController center={mapCenter} onZoomChange={setCurrentZoom} />
 
@@ -511,8 +510,8 @@ export const LiveMap: React.FC<LiveMapProps> = ({
       {/* Bottom Recommended Repair Strip when selected ship has warning/critical health */}
       {activeShip && isDegraded && routeData && routeData.recommendedRepairPorts.length > 0 && (
         <div style={mapStyles.repairStrip}>
-          <span style={{ color: '#C084FC', fontWeight: 700, fontSize: '12px' }}>
-            ⚡ NEAREST DRYDOCK / REPAIR PORTS FOR {activeShip.name} (DRAUGHT {activeShip.maxDraught}m):
+          <span style={{ color: '#BAE6FD', fontWeight: 600, fontSize: '13px' }}>
+            Repair ports for {activeShip.name} ({activeShip.maxDraught} m draught)
           </span>
           <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
             {routeData.recommendedRepairPorts.map(({ port, distanceFromVesselNm, berthCleared }) => (
@@ -538,9 +537,8 @@ const mapStyles: Record<string, React.CSSProperties> = {
     flex: 1,
   },
   infoBar: {
-    backgroundColor: '#0F172A',
-    border: '1px solid #1E293B',
-    borderRadius: '10px',
+    backgroundColor: '#09121F',
+    border: '1px solid #263B51',
     padding: '12px 16px',
     display: 'flex',
     justifyContent: 'space-between',
@@ -548,31 +546,15 @@ const mapStyles: Record<string, React.CSSProperties> = {
     flexWrap: 'wrap',
     gap: '8px',
   },
-  liveBadge: {
-    backgroundColor: 'rgba(56, 189, 248, 0.12)',
-    color: '#38BDF8',
-    border: '1px solid rgba(56, 189, 248, 0.35)',
-    padding: '4px 8px',
-    borderRadius: '6px',
-    fontSize: '11px',
-    fontWeight: 700,
-    fontFamily: 'monospace',
-  },
   destBadge: {
-    backgroundColor: 'rgba(168, 85, 247, 0.14)',
-    color: '#C084FC',
-    border: '1px solid rgba(168, 85, 247, 0.35)',
+    color: '#BAE6FD',
+    border: '1px solid #263B51',
     padding: '3px 8px',
-    borderRadius: '6px',
     fontSize: '11px',
     fontFamily: 'monospace',
   },
   zoomHintBadge: {
-    backgroundColor: 'rgba(148, 163, 184, 0.12)',
     color: '#94A3B8',
-    border: '1px solid rgba(148, 163, 184, 0.3)',
-    padding: '3px 8px',
-    borderRadius: '6px',
     fontSize: '11px',
     fontFamily: 'monospace',
   },
@@ -584,10 +566,8 @@ const mapStyles: Record<string, React.CSSProperties> = {
   mapBox: {
     height: '430px',
     width: '100%',
-    borderRadius: '12px',
     overflow: 'hidden',
-    border: '1px solid rgba(168, 85, 247, 0.35)',
-    boxShadow: '0 0 24px rgba(168, 85, 247, 0.14)',
+    border: '1px solid #263B51',
   },
   calloutCard: {
     position: 'relative',
@@ -635,9 +615,8 @@ const mapStyles: Record<string, React.CSSProperties> = {
     fontSize: '10px',
   },
   repairStrip: {
-    backgroundColor: 'rgba(168, 85, 247, 0.08)',
-    border: '1px solid rgba(168, 85, 247, 0.3)',
-    borderRadius: '10px',
+    backgroundColor: '#09121F',
+    border: '1px solid #263B51',
     padding: '10px 14px',
     display: 'flex',
     flexDirection: 'column',
@@ -650,7 +629,6 @@ const mapStyles: Record<string, React.CSSProperties> = {
     fontSize: '11px',
     fontFamily: 'monospace',
     padding: '4px 8px',
-    borderRadius: '6px',
   },
 };
 
