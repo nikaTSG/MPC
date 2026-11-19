@@ -1,7 +1,20 @@
 import { db } from '../../prisma/db.js';
+import { setTimeout as delay } from 'node:timers/promises';
 import { draftSupplierEmails } from '../integrations/ai/orderAgent.js';
 import type { AiCredentials } from '../integrations/ai/aiProvider.js';
-import { sendSupplierEmail } from '../integrations/email/nodemailer.js';
+
+export type RepairPort = { code: string | null; name: string; latitude: number; longitude: number };
+
+export function readRepairPort(value: unknown): RepairPort | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const { code, name, latitude, longitude } = value as Record<string, unknown>;
+  const normalizedCode = typeof code === 'string' ? code.trim().toUpperCase() : code;
+  if ((normalizedCode !== null && (typeof normalizedCode !== 'string' || !/^[A-Z]{2}[A-Z0-9]{3}$/.test(normalizedCode))) ||
+      typeof name !== 'string' || !name.trim() || name.length > 200 ||
+      typeof latitude !== 'number' || !Number.isFinite(latitude) || Math.abs(latitude) > 90 ||
+      typeof longitude !== 'number' || !Number.isFinite(longitude) || Math.abs(longitude) > 180) return null;
+  return { code: normalizedCode, name: name.trim(), latitude, longitude };
+}
 
 export type ExtractedPartInput = {
   partNumber: string;
@@ -36,6 +49,28 @@ async function prepareSupplierDrafts(
 }
 
 export type PreparedSupplierDrafts = Awaited<ReturnType<typeof prepareSupplierDrafts>>;
+
+function isSqliteBusy(error: unknown): boolean {
+  for (let cause = error; cause instanceof Error; cause = cause.cause) {
+    // SQLite's extended BUSY codes share the same primary result code (5).
+    if ('errcode' in cause && typeof cause.errcode === 'number' && (cause.errcode & 255) === 5) return true;
+  }
+  return false;
+}
+
+// SQLite readers can conflict when upgrading to a writer. Re-read each order
+// and its siblings in a fresh transaction after the winner commits.
+async function retryOrderTransaction<T>(operation: () => Promise<T>) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (!isSqliteBusy(error)) throw error;
+      if (attempt === 3) return { status: 503, body: { error: 'Another update is in progress. Retry the request.' } } as const;
+      await delay(10 * 2 ** attempt);
+    }
+  }
+}
 
 async function persistPreparedSupplierDrafts<Order extends object>(
   prepared: PreparedSupplierDrafts,
@@ -105,7 +140,7 @@ export const orderService = {
   async getOrdersByStatus(status = 'PENDING_APPROVAL') {
     return db.orm.Order
       .where((o, { fns }) => status === 'REPAIRS'
-        ? fns.or(o.status.eq('SENT'), o.status.eq('REPAIR_COMPLETED'))
+        ? fns.or(o.status.eq('APPROVED'), o.status.eq('SENT'), o.status.eq('REPAIR_COMPLETED'))
         : o.status.eq(status))
       .include('supplier')
       .include('vessel')
@@ -129,64 +164,102 @@ export const orderService = {
       .update(data);
   },
 
-  // 5. Approve -> Dispatch Email -> Mark as SENT
-  async approveAndSend(id: number) {
-    const order = await db.orm.Order
-      .where((o) => o.id.eq(id))
-      .include('supplier')
-      .first();
-
-    if (!order) {
-      throw new Error(`Procurement order ${id} not found`);
-    }
-
-    if (order.status !== 'PENDING_APPROVAL') {
-      throw new Error(`Order is already ${order.status}`);
-    }
-
-    // await sendSupplierEmail({
-    //   to: order.supplier.email,
-    //   subject: order.subject,
-    //   body: order.body,
-    // });
-
-    const now = new Date();
+  async approveOrder(id: number) {
     const updated = await db.orm.Order
       .where((o, { fns }) => fns.and(o.id.eq(id), o.status.eq('PENDING_APPROVAL')))
-      .update({
-        status: 'SENT',
-        approvedAt: now,
-        sentAt: now,
-      });
+      .update({ status: 'APPROVED', approvedAt: new Date() });
     if (!updated) throw new Error('This draft is no longer awaiting approval.');
     return updated;
   },
 
-  async completeRepair(id: number, measuredHealth: number, expectedHealth: number) {
-    return db.transaction(async (tx) => {
+  async recordSend(id: number, requestedPort?: RepairPort) {
+    return retryOrderTransaction(() => db.transaction(async (tx) => {
       const order = await tx.orm.Order.where((row) => row.id.eq(id)).include('vessel').first();
       if (!order) return { status: 404, body: { error: 'Order not found.' } } as const;
-      if (order.status !== 'SENT') {
-        return { status: 409, body: { error: 'Only an approved order awaiting repair can be completed.' } } as const;
+      if (order.externalSentAt !== null) {
+        return { status: 409, body: { error: 'External sending was already recorded for this RFQ.' } } as const;
       }
-      if (order.vessel.health !== expectedHealth) {
-        return { status: 409, body: { error: 'Vessel health changed. Check the latest reading and try again.' } } as const;
+      if (!['APPROVED', 'SENT', 'REPAIR_COMPLETED'].includes(order.status)) {
+        return { status: 409, body: { error: 'Approve the RFQ before recording an external send.' } } as const;
       }
 
-      const vessel = await tx.orm.Vessel.where((row) => row.id.eq(order.vesselId)).update({ health: measuredHealth });
+      const storedPort = readRepairPort(order.repairPort);
+      if (order.repairPort !== null && !storedPort) throw new Error('Invalid stored repair port.');
+      if (requestedPort && storedPort && (requestedPort.code !== storedPort.code || requestedPort.name !== storedPort.name ||
+          requestedPort.latitude !== storedPort.latitude || requestedPort.longitude !== storedPort.longitude)) {
+        return { status: 409, body: { error: 'A different repair port was already selected for this fault.' } } as const;
+      }
+
+      const { repairFaultId } = order;
+      const related = tx.orm.Order.where((row, { fns }) => repairFaultId === null ? row.id.eq(id) :
+        fns.and(row.vesselId.eq(order.vesselId), row.repairFaultId.eq(repairFaultId)));
+      const now = new Date();
+      const sent = await tx.orm.Order.where((row, { fns }) => fns.and(row.id.eq(id), row.externalSentAt.isNull()))
+        .update({ status: order.status === 'REPAIR_COMPLETED' ? order.status : 'SENT', externalSentAt: now, sentAt: now });
+      if (!sent) throw new Error('The external send could not be recorded.');
+      if (requestedPort && !storedPort) await related.updateAll({ repairPort: requestedPort });
+
+      const group = await related.select('status', 'externalSentAt').all();
+      const dispatchPending = group.some((rfq) => rfq.externalSentAt === null || rfq.status === 'REJECTED');
+      const port = storedPort ?? requestedPort;
+      if (dispatchPending || !port) {
+        return { status: 200, body: { vessel: order.vessel, diverted: false, dispatchPending } } as const;
+      }
+      const vessel = await tx.orm.Vessel.where((row) => row.id.eq(order.vesselId))
+        .update({ destinationPortCode: port.code, repairDestination: port, eta: null });
       if (!vessel) throw new Error('The linked vessel no longer exists.');
+      return { status: 200, body: { vessel, diverted: true, dispatchPending: false } } as const;
+    }));
+  },
+
+  async completeRepair(id: number, measurement?: { measuredHealth: number; expectedHealth: number }) {
+    return retryOrderTransaction(() => db.transaction(async (tx) => {
+      const order = await tx.orm.Order.where((row) => row.id.eq(id)).include('vessel').first();
+      if (!order) return { status: 404, body: { error: 'Order not found.' } } as const;
+      if (order.status !== 'APPROVED' && order.status !== 'SENT') {
+        return { status: 409, body: { error: 'Only an approved order awaiting repair can be completed.' } } as const;
+      }
+      const { repairHealthLoss, repairFaultId } = order;
+      const restoresRecordedLoss = repairFaultId !== null && repairHealthLoss !== null;
+      let health: number;
+      if (restoresRecordedLoss) {
+        if (measurement) {
+          return { status: 400, body: { error: 'Complete this repair without a measurement to restore its recorded health loss.' } } as const;
+        }
+        health = Math.min(100, order.vessel.health + repairHealthLoss);
+      } else {
+        if (!measurement) {
+          return { status: 400, body: { error: 'This repair requires a measured health percentage and the previous reading.' } } as const;
+        }
+        if (order.vessel.health !== measurement.expectedHealth) {
+          return { status: 409, body: { error: 'Vessel health changed. Check the latest reading and try again.' } } as const;
+        }
+        health = measurement.measuredHealth;
+      }
+
       const completed = await tx.orm.Order.where((row, { fns }) =>
-        fns.and(row.id.eq(id), row.status.eq('SENT'))).update({ status: 'REPAIR_COMPLETED' });
+        fns.and(row.id.eq(id), row.status.eq(order.status))).update({ status: 'REPAIR_COMPLETED' });
       if (!completed) throw new Error('The order is no longer awaiting repair.');
-      return { status: 200, body: { vessel, orderId: completed.id } } as const;
-    });
+
+      if (restoresRecordedLoss) {
+        const unfinished = await tx.orm.Order.select('id').where((row, { fns }) => fns.and(
+          row.repairFaultId.eq(repairFaultId), row.status.neq('REPAIR_COMPLETED'),
+        )).first();
+        if (unfinished) {
+          return { status: 200, body: { vessel: order.vessel, orderId: completed.id, restorationPending: true } } as const;
+        }
+      }
+      const vessel = await tx.orm.Vessel.where((row) => row.id.eq(order.vesselId)).update({ health });
+      if (!vessel) throw new Error('The linked vessel no longer exists.');
+      return { status: 200, body: { vessel, orderId: completed.id, restorationPending: false } } as const;
+    }));
   },
 
   // 6. Reject an unwanted draft
   async rejectOrder(id: number) {
     return db.orm.Order
-      .where((o, { fns }) => fns.and(o.id.eq(id), fns.or(
-        o.status.eq('PENDING_APPROVAL'), o.status.eq('SENT'), o.status.eq('REJECTED'),
+      .where((o, { fns }) => fns.and(o.id.eq(id), o.externalSentAt.isNull(), fns.or(
+        o.status.eq('PENDING_APPROVAL'), o.status.eq('APPROVED'), o.status.eq('SENT'), o.status.eq('REJECTED'),
       )))
       .update({ status: 'REJECTED' });
   },

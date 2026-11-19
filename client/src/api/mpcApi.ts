@@ -69,6 +69,13 @@ export interface ProcessedIntake {
   createdAt: string;
 }
 
+export interface RepairPortSelection {
+  code: string | null;
+  name: string;
+  latitude: number;
+  longitude: number;
+}
+
 export interface Vessel {
   id: number;
   imo: string;
@@ -94,6 +101,7 @@ export interface Vessel {
   speedKnots: number | null;
   heading: number | null;
   destinationPortCode: string | null;
+  repairDestination?: RepairPortSelection | null;
   eta: string | null;
 }
 
@@ -126,7 +134,10 @@ export interface OrderDraft {
   subject: string;
   body: string;
   urgency: 'LOW' | 'NORMAL' | 'CRITICAL';
-  status: 'PENDING_APPROVAL' | 'SENT' | 'REJECTED' | 'REPAIR_COMPLETED';
+  status: 'PENDING_APPROVAL' | 'APPROVED' | 'SENT' | 'REJECTED' | 'REPAIR_COMPLETED';
+  externalSentAt?: string | null;
+  repairPort?: RepairPortSelection | null;
+  repairHealthLoss?: number | null;
   items: { partNumber: string; partName: string; quantity: number; notes?: string }[];
   vessel?: { id: number; name: string; imo: string };
   supplier?: { id: number; name: string; email: string; portLocation?: string };
@@ -316,10 +327,16 @@ export const mpcApi = {
       method: 'POST',
     }),
 
-  completeRepair: (id: number, measuredHealth: number, expectedHealth: number) =>
-    request<{ orderId: number; vessel: Vessel }>(`/api/v1/orders/${id}/complete-repair`, {
+  recordExternalSend: (id: number, repairPort?: RepairPortSelection) =>
+    request<{ vessel: Vessel; diverted: boolean; dispatchPending: boolean }>(`/api/v1/orders/${id}/record-send`, {
       method: 'POST',
-      body: JSON.stringify({ measuredHealth, expectedHealth }),
+      body: JSON.stringify({ repairPort }),
+    }),
+
+  completeRepair: (id: number, measurement?: { measuredHealth: number; expectedHealth: number }) =>
+    request<{ orderId: number; vessel: Vessel; restorationPending?: boolean }>(`/api/v1/orders/${id}/complete-repair`, {
+      method: 'POST',
+      body: JSON.stringify(measurement ?? {}),
     }),
 
   updateOrderDraft: (id: number, updates: { subject?: string; body?: string }) =>

@@ -48,6 +48,13 @@
                   "kind": "scalar"
                 }
               },
+              "externalSentAt": {
+                "nullable": true,
+                "type": {
+                  "codecId": "sqlite/datetime@1",
+                  "kind": "scalar"
+                }
+              },
               "id": {
                 "nullable": false,
                 "type": {
@@ -57,6 +64,27 @@
               },
               "items": {
                 "nullable": false,
+                "type": {
+                  "codecId": "sqlite/json@1",
+                  "kind": "scalar"
+                }
+              },
+              "repairFaultId": {
+                "nullable": true,
+                "type": {
+                  "codecId": "sqlite/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "repairHealthLoss": {
+                "nullable": true,
+                "type": {
+                  "codecId": "sqlite/integer@1",
+                  "kind": "scalar"
+                }
+              },
+              "repairPort": {
+                "nullable": true,
                 "type": {
                   "codecId": "sqlite/json@1",
                   "kind": "scalar"
@@ -157,11 +185,23 @@
                 "createdAt": {
                   "column": "createdAt"
                 },
+                "externalSentAt": {
+                  "column": "externalSentAt"
+                },
                 "id": {
                   "column": "id"
                 },
                 "items": {
                   "column": "items"
+                },
+                "repairFaultId": {
+                  "column": "repairFaultId"
+                },
+                "repairHealthLoss": {
+                  "column": "repairHealthLoss"
+                },
+                "repairPort": {
+                  "column": "repairPort"
                 },
                 "sentAt": {
                   "column": "sentAt"
@@ -550,6 +590,13 @@
                   "kind": "scalar"
                 }
               },
+              "repairDestination": {
+                "nullable": true,
+                "type": {
+                  "codecId": "sqlite/json@1",
+                  "kind": "scalar"
+                }
+              },
               "speedKnots": {
                 "nullable": true,
                 "type": {
@@ -655,6 +702,9 @@
                 "operationalStatus": {
                   "column": "operationalStatus"
                 },
+                "repairDestination": {
+                  "column": "repairDestination"
+                },
                 "speedKnots": {
                   "column": "speedKnots"
                 },
@@ -705,6 +755,11 @@
                   },
                   "nullable": false
                 },
+                "externalSentAt": {
+                  "codecId": "sqlite/datetime@1",
+                  "dataType": "sqlite/datetime",
+                  "nullable": true
+                },
                 "id": {
                   "codecId": "sqlite/integer@1",
                   "dataType": "sqlite/integer",
@@ -718,6 +773,21 @@
                   "codecId": "sqlite/json@1",
                   "dataType": "sqlite/json",
                   "nullable": false
+                },
+                "repairFaultId": {
+                  "codecId": "sqlite/text@1",
+                  "dataType": "sqlite/text",
+                  "nullable": true
+                },
+                "repairHealthLoss": {
+                  "codecId": "sqlite/integer@1",
+                  "dataType": "sqlite/integer",
+                  "nullable": true
+                },
+                "repairPort": {
+                  "codecId": "sqlite/json@1",
+                  "dataType": "sqlite/json",
+                  "nullable": true
                 },
                 "sentAt": {
                   "codecId": "sqlite/datetime@1",
@@ -804,6 +874,14 @@
                 }
               ],
               "indexes": [
+                {
+                  "columns": [
+                    "repairFaultId"
+                  ],
+                  "name": "Order_repairFaultId_idx_5c81594d",
+                  "prefix": "Order_repairFaultId_idx",
+                  "unique": false
+                },
                 {
                   "columns": [
                     "supplierId"
@@ -1102,6 +1180,11 @@
                   },
                   "nullable": false
                 },
+                "repairDestination": {
+                  "codecId": "sqlite/json@1",
+                  "dataType": "sqlite/json",
+                  "nullable": true
+                },
                 "speedKnots": {
                   "codecId": "sqlite/real@1",
                   "dataType": "sqlite/real",
@@ -1182,7 +1265,7 @@
         "id": "__unbound__"
       }
     },
-    "storageHash": "595aeea3d2dc4d1f00a693168d859a992943af2cf1af991dc96183c34bf9ee5d"
+    "storageHash": "5f534d18d31fccdd4d79770bada5c9140b102f22a0f014e1e54342c3072ec60a"
   },
   "execution": {
     "executionHash": "765c42be0aa86af3e62d4e5ca8ab7a4fd841eddc9948fd4e2655ec8d19017d99",

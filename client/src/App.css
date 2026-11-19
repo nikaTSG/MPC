@@ -353,6 +353,10 @@
   overflow-wrap: anywhere;
 }
 
+.repair-port-popup .dashboard-button {
+  margin-top: 8px;
+}
+
 .repair-panel-results h3 {
   margin: 0 0 5px;
   color: #a4e4d1;

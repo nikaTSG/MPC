@@ -7,6 +7,7 @@ router.post("/generate", orderController.generateDrafts);
 router.get("/", orderController.listOrders); // ?status=PENDING_APPROVAL or ?status=SENT
 router.patch("/:id", orderController.updateDraft);
 router.post("/:id/approve", orderController.approveOrder);
+router.post("/:id/record-send", orderController.recordSend);
 router.post("/:id/complete-repair", orderController.completeRepair);
 router.post("/:id/reject", orderController.rejectOrder);
 

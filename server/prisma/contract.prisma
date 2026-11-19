@@ -33,6 +33,7 @@ model Vessel {
   speedKnots          Float?   // Speed Over Ground (SOG)
   heading             Float?   // Course in degrees (0-359)
   destinationPortCode String?  // UN/LOCODE (e.g., "GRPIR", "SGSIN", "NLRTM")
+  repairDestination   Json?    // Operator-selected repair port after the related external RFQs were sent
   eta                 DateTime?
 
   // Timestamps
@@ -66,12 +67,18 @@ model Order {
   body       String
   items      Json                                   // [{ partNumber, partName, quantity, notes }]
   urgency    String    @default("NORMAL")           // "LOW" | "NORMAL" | "CRITICAL"
-  status     String    @default("PENDING_APPROVAL") // "PENDING_APPROVAL" | "SENT" | "REJECTED"
+  status     String    @default("PENDING_APPROVAL") // PENDING_APPROVAL, APPROVED, SENT, REJECTED or REPAIR_COMPLETED
+  repairFaultId    String? // Shared by supplier drafts from one fault report
+  repairHealthLoss Int?    // Actual loss recoverable after all parts for this fault are repaired
+  repairPort       Json?   // Shared selection for this fault's RFQs, independent of the current vessel destination
 
   approvedAt DateTime?
   sentAt     DateTime?
+  externalSentAt DateTime? // Only set when the operator confirms an external RFQ send
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @onCreate(now()) @onUpdate(now())
+
+  @@index([repairFaultId])
 }
 
 model ReaderIntake {

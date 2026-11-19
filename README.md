@@ -42,6 +42,16 @@ geia sou peter
 
 Saving intake on an existing installation requires the additive `ReaderIntake` table. From `server/`, preview the change to the local demo copy with `DATABASE_URL=file:./prisma/dev.db.local ./node_modules/.bin/prisma db update --dry-run`. Use the same explicit database URL when applying and verifying the reviewed update.
 
+Automatic repair recovery records the fault ID and the health points lost on its supplier drafts. Completing the last supplier order for a fully covered fault restores those points once, up to 100%. Orders without a recorded loss still take a measured reading. To upgrade an existing local copy, back it up and run these commands from `server/`.
+
+```sh
+./node_modules/.bin/prisma db update --dry-run --db "file:$PWD/prisma/dev.db.local"
+./node_modules/.bin/prisma db update --db "file:$PWD/prisma/dev.db.local"
+./node_modules/.bin/prisma db verify --db "file:$PWD/prisma/dev.db.local"
+```
+
+Use **Record email sent** in Procurement after sending each RFQ externally. MPC selects the closest repair port within 500 NM whose published limits fit the vessel. You can also choose a port on the route map. The final confirmation for the fault updates the vessel’s recorded destination and clears its old ETA. The map draws an estimated sea route where its route network covers the chosen port.
+
 ### Python reader setup
 
 With Python 3.10 or later, run these commands from the repository root. Enter the provider API key in the dashboard’s AI settings.

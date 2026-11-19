@@ -19,7 +19,7 @@ import type {
 } from '@prisma/orm-sqlite/contract/types';
 
 export type StorageHash =
-  StorageHashBase<'595aeea3d2dc4d1f00a693168d859a992943af2cf1af991dc96183c34bf9ee5d'>;
+  StorageHashBase<'5f534d18d31fccdd4d79770bada5c9140b102f22a0f014e1e54342c3072ec60a'>;
 export type ExecutionHash =
   ExecutionHashBase<'765c42be0aa86af3e62d4e5ca8ab7a4fd841eddc9948fd4e2655ec8d19017d99'>;
 export type ProfileHash =
@@ -220,8 +220,12 @@ export namespace Models {
     approvedAt: FieldOutputTypes['__unbound__']['Order']['approvedAt'];
     body: FieldOutputTypes['__unbound__']['Order']['body'];
     createdAt: FieldOutputTypes['__unbound__']['Order']['createdAt'];
+    externalSentAt: FieldOutputTypes['__unbound__']['Order']['externalSentAt'];
     id: FieldOutputTypes['__unbound__']['Order']['id'];
     items: FieldOutputTypes['__unbound__']['Order']['items'];
+    repairFaultId: FieldOutputTypes['__unbound__']['Order']['repairFaultId'];
+    repairHealthLoss: FieldOutputTypes['__unbound__']['Order']['repairHealthLoss'];
+    repairPort: FieldOutputTypes['__unbound__']['Order']['repairPort'];
     sentAt: FieldOutputTypes['__unbound__']['Order']['sentAt'];
     status: FieldOutputTypes['__unbound__']['Order']['status'];
     subject: FieldOutputTypes['__unbound__']['Order']['subject'];
@@ -279,6 +283,7 @@ export namespace Models {
     mmsi: FieldOutputTypes['__unbound__']['Vessel']['mmsi'];
     name: FieldOutputTypes['__unbound__']['Vessel']['name'];
     operationalStatus: FieldOutputTypes['__unbound__']['Vessel']['operationalStatus'];
+    repairDestination: FieldOutputTypes['__unbound__']['Vessel']['repairDestination'];
     speedKnots: FieldOutputTypes['__unbound__']['Vessel']['speedKnots'];
     teuCapacity: FieldOutputTypes['__unbound__']['Vessel']['teuCapacity'];
     updatedAt: FieldOutputTypes['__unbound__']['Vessel']['updatedAt'];
@@ -334,6 +339,12 @@ type ContractBase = Omit<
                   readonly default: { readonly kind: 'function'; readonly expression: 'now()' };
                   readonly many: false;
                 };
+                readonly externalSentAt: {
+                  readonly dataType: 'sqlite/datetime';
+                  readonly codecId: 'sqlite/datetime@1';
+                  readonly nullable: true;
+                  readonly many: false;
+                };
                 readonly id: {
                   readonly dataType: 'sqlite/integer';
                   readonly codecId: 'sqlite/integer@1';
@@ -348,6 +359,24 @@ type ContractBase = Omit<
                   readonly dataType: 'sqlite/json';
                   readonly codecId: 'sqlite/json@1';
                   readonly nullable: false;
+                  readonly many: false;
+                };
+                readonly repairFaultId: {
+                  readonly dataType: 'sqlite/text';
+                  readonly codecId: 'sqlite/text@1';
+                  readonly nullable: true;
+                  readonly many: false;
+                };
+                readonly repairHealthLoss: {
+                  readonly dataType: 'sqlite/integer';
+                  readonly codecId: 'sqlite/integer@1';
+                  readonly nullable: true;
+                  readonly many: false;
+                };
+                readonly repairPort: {
+                  readonly dataType: 'sqlite/json';
+                  readonly codecId: 'sqlite/json@1';
+                  readonly nullable: true;
                   readonly many: false;
                 };
                 readonly sentAt: {
@@ -404,6 +433,12 @@ type ContractBase = Omit<
               primaryKey: { readonly columns: readonly ['id'] };
               uniques: readonly [];
               indexes: readonly [
+                {
+                  readonly name: 'Order_repairFaultId_idx_5c81594d';
+                  readonly prefix: 'Order_repairFaultId_idx';
+                  readonly columns: readonly ['repairFaultId'];
+                  readonly unique: false;
+                },
                 {
                   readonly name: 'Order_supplierId_idx_c4d9a8b9';
                   readonly prefix: 'Order_supplierId_idx';
@@ -723,6 +758,12 @@ type ContractBase = Omit<
                   };
                   readonly many: false;
                 };
+                readonly repairDestination: {
+                  readonly dataType: 'sqlite/json';
+                  readonly codecId: 'sqlite/json@1';
+                  readonly nullable: true;
+                  readonly many: false;
+                };
                 readonly speedKnots: {
                   readonly dataType: 'sqlite/real';
                   readonly codecId: 'sqlite/real@1';
@@ -822,12 +863,28 @@ type ContractBase = Omit<
                 readonly nullable: false;
                 readonly type: { readonly kind: 'scalar'; readonly codecId: 'sqlite/datetime@1' };
               };
+              readonly externalSentAt: {
+                readonly nullable: true;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'sqlite/datetime@1' };
+              };
               readonly id: {
                 readonly nullable: false;
                 readonly type: { readonly kind: 'scalar'; readonly codecId: 'sqlite/integer@1' };
               };
               readonly items: {
                 readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'sqlite/json@1' };
+              };
+              readonly repairFaultId: {
+                readonly nullable: true;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'sqlite/text@1' };
+              };
+              readonly repairHealthLoss: {
+                readonly nullable: true;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'sqlite/integer@1' };
+              };
+              readonly repairPort: {
+                readonly nullable: true;
                 readonly type: { readonly kind: 'scalar'; readonly codecId: 'sqlite/json@1' };
               };
               readonly sentAt: {
@@ -892,8 +949,12 @@ type ContractBase = Omit<
                 readonly approvedAt: { readonly column: 'approvedAt' };
                 readonly body: { readonly column: 'body' };
                 readonly createdAt: { readonly column: 'createdAt' };
+                readonly externalSentAt: { readonly column: 'externalSentAt' };
                 readonly id: { readonly column: 'id' };
                 readonly items: { readonly column: 'items' };
+                readonly repairFaultId: { readonly column: 'repairFaultId' };
+                readonly repairHealthLoss: { readonly column: 'repairHealthLoss' };
+                readonly repairPort: { readonly column: 'repairPort' };
                 readonly sentAt: { readonly column: 'sentAt' };
                 readonly status: { readonly column: 'status' };
                 readonly subject: { readonly column: 'subject' };
@@ -1116,6 +1177,10 @@ type ContractBase = Omit<
                 readonly nullable: false;
                 readonly type: { readonly kind: 'scalar'; readonly codecId: 'sqlite/text@1' };
               };
+              readonly repairDestination: {
+                readonly nullable: true;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'sqlite/json@1' };
+              };
               readonly speedKnots: {
                 readonly nullable: true;
                 readonly type: { readonly kind: 'scalar'; readonly codecId: 'sqlite/real@1' };
@@ -1164,6 +1229,7 @@ type ContractBase = Omit<
                 readonly mmsi: { readonly column: 'mmsi' };
                 readonly name: { readonly column: 'name' };
                 readonly operationalStatus: { readonly column: 'operationalStatus' };
+                readonly repairDestination: { readonly column: 'repairDestination' };
                 readonly speedKnots: { readonly column: 'speedKnots' };
                 readonly teuCapacity: { readonly column: 'teuCapacity' };
                 readonly updatedAt: { readonly column: 'updatedAt' };

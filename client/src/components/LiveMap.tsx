@@ -11,7 +11,7 @@ import {
 } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import type { Vessel } from '../api/mpcApi';
+import type { RepairPortSelection, Vessel } from '../api/mpcApi';
 import { computeMaritimeRoute } from '../utils/seaRouter';
 import {
   DEMO_BERTH_HOURS, estimatePortCall, findNearbyRepairPorts, getRepairPorts, getWorldPorts,
@@ -23,6 +23,8 @@ interface LiveMapProps {
   vessels: Vessel[];
   selectedVessel: Vessel | null;
   onSelectVessel: (id: number) => void;
+  repairPortSelection: RepairPortSelection | null;
+  onChooseRepairPort: (vesselId: number, port: RepairPortSelection) => void;
   portCall: ReturnType<typeof estimatePortCall>;
   portWeather: { forecast: MarineConditions | null } | null;
 }
@@ -89,11 +91,12 @@ const repairIcons = {
   unconfirmed: L.divIcon({ className: 'repair-beacon repair-beacon-unconfirmed', iconSize: [16, 16], iconAnchor: [8, 8] }),
 };
 
-function RepairMarkers({ ports, fit, markers, onPopupChange }: {
+function RepairMarkers({ ports, fit, markers, onPopupChange, onChoose }: {
   ports: NearbyRepairPort[];
   fit: boolean;
   markers: React.RefObject<Map<number, L.Marker>>;
   onPopupChange: (id: number, open: boolean) => void;
+  onChoose: (port: NearbyRepairPort) => void;
 }) {
   return ports.map((port) => (
     <Marker key={port.id} position={port.coords} icon={fit ? repairIcons.fit : repairIcons.unconfirmed} title={port.name}
@@ -111,6 +114,7 @@ function RepairMarkers({ ports, fit, markers, onPopupChange }: {
           <div>{Math.round(port.distanceNm)} NM · {port.repairService}</div>
           <div>{fit ? 'Within published vessel limits' : 'Vessel limits need confirmation'}</div>
           <div>Live berth availability unknown</div>
+          <button type="button" className="dashboard-button" onClick={() => onChoose(port)}>Choose repair port</button>
         </div>
       </Popup>
     </Marker>
@@ -242,6 +246,8 @@ export const LiveMap: React.FC<LiveMapProps> = ({
   vessels,
   selectedVessel,
   onSelectVessel,
+  repairPortSelection,
+  onChooseRepairPort,
   portCall,
   portWeather,
 }) => {
@@ -295,6 +301,12 @@ export const LiveMap: React.FC<LiveMapProps> = ({
   }, [checkRepairs, repairPorts, repairError]);
 
   const nearbyRepairs = repairShip && repairPorts ? findNearbyRepairPorts(repairShip, repairPorts) : null;
+  const recommendedRepairPort = nearbyRepairs?.fits[0];
+  const chooseRepairPort = (port: NearbyRepairPort) => {
+    if (repairShip) onChooseRepairPort(repairShip.id, {
+      code: port.code, name: port.name, latitude: port.coords[0], longitude: port.coords[1],
+    });
+  };
   const showRepairPort = (id: number) => {
     const marker = repairMarkers.current.get(id);
     if (!marker) return;
@@ -310,6 +322,12 @@ export const LiveMap: React.FC<LiveMapProps> = ({
   };
 
   const routeData = activeShip ? computeMaritimeRoute(activeShip) : null;
+  const repairDestination = activeShip?.repairDestination;
+  const destinationMarker = repairDestination ? {
+    name: repairDestination.name,
+    code: repairDestination.code,
+    coords: [repairDestination.latitude, repairDestination.longitude] as [number, number],
+  } : routeData?.destinationPort;
   const routeToFrame = routeSelection && routeSelection.vesselId === activeShip?.id && routeSelection.coordinates.length > 1
     ? routeSelection : null;
 
@@ -426,9 +444,12 @@ export const LiveMap: React.FC<LiveMapProps> = ({
           </strong>
           {routeData?.destinationPort && (
             <span style={mapStyles.destBadge}>
-              Estimated route to {routeData.destinationPort.name} ·{' '}
+              Estimated route to {destinationMarker?.name ?? routeData.destinationPort.name} ·{' '}
               {routeData.remainingNm.toLocaleString()} NM
             </span>
+          )}
+          {repairDestination && !routeData?.destinationPort && (
+            <span style={mapStyles.destBadge}>Repair destination · {repairDestination.name}</span>
           )}
         </div>
 
@@ -456,7 +477,7 @@ export const LiveMap: React.FC<LiveMapProps> = ({
         <div className="port-call-heading">
           <div>
             <h2>Port call</h2>
-            {portCall && <p>{portCall.port.name} · {portCall.port.code}</p>}
+            {destinationMarker && <p>{destinationMarker.name}{destinationMarker.code && ` · ${destinationMarker.code}`}</p>}
           </div>
           <div className="port-layer-control">
             <div className="map-layer-buttons">
@@ -503,7 +524,8 @@ export const LiveMap: React.FC<LiveMapProps> = ({
             )}
           </>
         ) : <p className="port-call-note">
-          {activeShip?.destinationPortCode
+          {repairDestination ? `Sea-route estimate unavailable for ${repairDestination.name}.`
+            : activeShip?.destinationPortCode
             ? `No estimated route available for ${activeShip.destinationPortCode}.`
             : 'No destination assigned.'}
         </p>}
@@ -514,7 +536,7 @@ export const LiveMap: React.FC<LiveMapProps> = ({
           <MapContainer
             center={mapCenter}
             zoom={INITIAL_ZOOM}
-            minZoom={1}
+            minZoom={0}
             style={{ position: 'absolute', inset: 0 }}
           >
             <MapCameraAndZoomController center={mapCenter} worldwide={showWorldwide} route={routeToFrame}
@@ -534,8 +556,8 @@ export const LiveMap: React.FC<LiveMapProps> = ({
             />
 
             {showWorldwide && worldwidePorts && <WorldwidePortMarkers ports={worldwidePorts} />}
-            {nearbyRepairs && <RepairMarkers ports={nearbyRepairs.fits} fit markers={repairMarkers} onPopupChange={handleRepairPopup} />}
-            {nearbyRepairs && <RepairMarkers ports={nearbyRepairs.needsConfirmation} fit={false} markers={repairMarkers} onPopupChange={handleRepairPopup} />}
+            {nearbyRepairs && <RepairMarkers ports={nearbyRepairs.fits} fit markers={repairMarkers} onPopupChange={handleRepairPopup} onChoose={chooseRepairPort} />}
+            {nearbyRepairs && <RepairMarkers ports={nearbyRepairs.needsConfirmation} fit={false} markers={repairMarkers} onPopupChange={handleRepairPopup} onChoose={chooseRepairPort} />}
 
             {/* Dual-Layer Glowing Sea-Lane Route */}
             {routeData && routeData.coordinates.length > 1 && (
@@ -565,12 +587,13 @@ export const LiveMap: React.FC<LiveMapProps> = ({
               </>
             )}
 
-            {routeData?.destinationPort && routeData.coordinates.length > 1 && (
-              <CircleMarker center={routeData.destinationPort.coords} radius={5}
+            {destinationMarker && (
+              <CircleMarker center={destinationMarker.coords} radius={5}
                 pathOptions={{ color: activeStatusColor, fillColor: '#0B1320', fillOpacity: 1, weight: 2 }}>
                 <Popup>
-                  <strong>{routeData.destinationPort.name}</strong>
-                  <p>Recorded destination · {routeData.destinationPort.code}</p>
+                  <strong>{destinationMarker.name}</strong>
+                  <p>{repairDestination ? 'Recorded repair destination' : 'Recorded destination'}
+                    {destinationMarker.code && ` · ${destinationMarker.code}`}</p>
                 </Popup>
               </CircleMarker>
             )}
@@ -611,7 +634,11 @@ export const LiveMap: React.FC<LiveMapProps> = ({
                     eventHandlers={{
                       click: () => {
                         setFleetRequest(null);
-                        setRouteSelection({ vesselId: vessel.id, coordinates: computeMaritimeRoute(vessel).coordinates });
+                        const coordinates = computeMaritimeRoute(vessel).coordinates;
+                        if (vessel.repairDestination) {
+                          coordinates.push([vessel.repairDestination.latitude, vessel.repairDestination.longitude]);
+                        }
+                        setRouteSelection({ vesselId: vessel.id, coordinates });
                         setRepairVesselId(vesselNeedsRepair(vessel) ? vessel.id : null);
                         setOpenRepairPortId(null);
                         setRepairError(false);
@@ -716,6 +743,8 @@ export const LiveMap: React.FC<LiveMapProps> = ({
             <header className="repair-panel-header">
               <h2>Nearby repair ports</h2>
               <p><span>{repairShip.name}</span><span>{REPAIR_PORT_RADIUS_NM} NM radius</span></p>
+              {repairPortSelection ? <p role="status">RFQ repair port · {repairPortSelection.name}</p>
+                : recommendedRepairPort && <p role="status">Automatic repair port · {recommendedRepairPort.name}</p>}
             </header>
             {repairError ? (
               <div className="port-layer-control" role="status">
