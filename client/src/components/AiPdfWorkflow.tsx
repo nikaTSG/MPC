@@ -9,6 +9,7 @@ interface AiPdfWorkflowProps {
   blocked: boolean;
   onBusyChange: (busy: boolean) => void;
   onDraftsCreated: () => Promise<void>;
+  onViewDrafts: () => void;
 }
 
 function canDraft(review: IntakeReview) {
@@ -30,7 +31,7 @@ function readBase64(file: File): Promise<string> {
   });
 }
 
-export default function AiPdfWorkflow({ settings, vessels, blocked, onBusyChange, onDraftsCreated }: AiPdfWorkflowProps) {
+export default function AiPdfWorkflow({ settings, vessels, blocked, onBusyChange, onDraftsCreated, onViewDrafts }: AiPdfWorkflowProps) {
   const [file, setFile] = useState<File | null>(null);
   const [body, setBody] = useState('');
   const [report, setReport] = useState<{ review: IntakeReview; source: IntakeSource } | null>(null);
@@ -180,6 +181,9 @@ export default function AiPdfWorkflow({ settings, vessels, blocked, onBusyChange
                   : canDraft(report.review) ? 'Findings saved. No matching suppliers.'
                     : 'Findings saved. No supplier drafts created.'}
               </p>
+            )}
+            {draftCount !== null && draftCount > 0 && (
+              <button type="button" className="dashboard-button" onClick={onViewDrafts}>View drafts</button>
             )}
           </div>
         </div>

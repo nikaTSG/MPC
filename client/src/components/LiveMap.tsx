@@ -13,10 +13,11 @@ import {
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import type { Vessel } from '../api/mpcApi';
-import { computeMaritimeRoute, MARITIME_PORTS } from '../utils/seaRouter';
+import { computeMaritimeRoute } from '../utils/seaRouter';
 import {
-  DEMO_BERTH_HOURS, estimatePortCall, getWorldPorts, MARINE_WEATHER_SOURCE, WORLD_PORT_SOURCE,
-  type MarineConditions, type WorldPort,
+  DEMO_BERTH_HOURS, estimatePortCall, findNearbyRepairPorts, getRepairPorts, getWorldPorts,
+  MARINE_WEATHER_SOURCE, REPAIR_PORT_RADIUS_NM, REPAIR_PORT_SOURCE, WORLD_PORT_SOURCE,
+  type MarineConditions, type NearbyRepairPort, type RepairPort, type WorldPort,
 } from '../utils/portCalls';
 
 interface LiveMapProps {
@@ -72,6 +73,30 @@ const getVesselStatusColor = (health: number): string => {
   if (health < 80) return '#FACC15'; // Warning: Yellow
   return '#38BDF8'; // Healthy: Blue
 };
+
+function vesselNeedsRepair(vessel: Vessel) {
+  return vessel.health < 100 || vessel.operationalStatus === 'MAINTENANCE_REQUIRED';
+}
+
+const repairIcons = {
+  fit: L.divIcon({ className: 'repair-beacon repair-beacon-fit', iconSize: [18, 18], iconAnchor: [9, 9] }),
+  unconfirmed: L.divIcon({ className: 'repair-beacon repair-beacon-unconfirmed', iconSize: [16, 16], iconAnchor: [8, 8] }),
+};
+
+function RepairMarkers({ ports, fit }: { ports: NearbyRepairPort[]; fit: boolean }) {
+  return ports.map((port) => (
+    <Marker key={port.id} position={port.coords} icon={fit ? repairIcons.fit : repairIcons.unconfirmed} title={port.name}>
+      <Popup>
+        <div className="repair-port-popup">
+          <strong>{port.name}{port.code && ` · ${port.code}`}</strong>
+          <div>{Math.round(port.distanceNm)} NM · {port.repairService}</div>
+          <div>{fit ? 'Within published vessel limits' : 'Vessel limits need confirmation'}</div>
+          <div>Live berth availability unknown</div>
+        </div>
+      </Popup>
+    </Marker>
+  ));
+}
 
 // Tracks zoom level and pans smoothly to selected vessel without overriding user zoom
 const MapCameraAndZoomController: React.FC<{
@@ -153,39 +178,6 @@ const createCyberShipIcon = (
     iconAnchor: [16, 16],
   });
 
-// Circular concentric purple port beacon
-const createPortIcon = (isDestination: boolean, isRecommendedRepair: boolean) => {
-  const size = isDestination ? 20 : isRecommendedRepair ? 18 : 14;
-  const coreColor = isDestination ? '#E879F9' : '#C084FC';
-  const borderStyle = isDestination ? '2.5px solid #E879F9' : '2px solid #A855F7';
-
-  return L.divIcon({
-    className: '',
-    html: `
-      <div style="
-        width: ${size}px;
-        height: ${size}px;
-        border-radius: 50%;
-        background: rgba(88, 28, 135, 0.45);
-        border: ${borderStyle};
-        box-shadow: 0 0 ${isDestination ? '14px' : '9px'} #A855F7;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-      ">
-        <div style="
-          width: ${isDestination ? '7px' : '5px'};
-          height: ${isDestination ? '7px' : '5px'};
-          border-radius: 50%;
-          background: ${coreColor};
-        "></div>
-      </div>
-    `,
-    iconSize: [size, size],
-    iconAnchor: [size / 2, size / 2],
-  });
-};
-
 export const LiveMap: React.FC<LiveMapProps> = ({
   vessels,
   selectedVessel,
@@ -197,6 +189,9 @@ export const LiveMap: React.FC<LiveMapProps> = ({
   const [showWorldwide, setShowWorldwide] = useState(false);
   const [worldwidePorts, setWorldwidePorts] = useState<WorldPort[] | null>(null);
   const [worldwideError, setWorldwideError] = useState(false);
+  const [repairVesselId, setRepairVesselId] = useState<number | null>(null);
+  const [repairPorts, setRepairPorts] = useState<RepairPort[] | null>(null);
+  const [repairError, setRepairError] = useState(false);
 
   useEffect(() => {
     if (!showWorldwide || worldwidePorts) return;
@@ -216,6 +211,20 @@ export const LiveMap: React.FC<LiveMapProps> = ({
     ? mappableVessels.find((v) => v.id === selectedVessel.id) ?? null
     : mappableVessels[0] ?? null;
 
+  const repairShip = activeShip && activeShip.id === repairVesselId && vesselNeedsRepair(activeShip) ? activeShip : null;
+  const checkRepairs = repairShip !== null;
+
+  useEffect(() => {
+    if (!checkRepairs || repairPorts || repairError) return;
+    const controller = new AbortController();
+    getRepairPorts(AbortSignal.any([controller.signal, AbortSignal.timeout(18_000)]))
+      .then((ports) => { if (!controller.signal.aborted) setRepairPorts(ports); })
+      .catch(() => { if (!controller.signal.aborted) setRepairError(true); });
+    return () => controller.abort();
+  }, [checkRepairs, repairPorts, repairError]);
+
+  const nearbyRepairs = repairShip && repairPorts ? findNearbyRepairPorts(repairShip, repairPorts) : null;
+
   const routeData = activeShip ? computeMaritimeRoute(activeShip) : null;
 
   const mapCenter: [number, number] = activeShip
@@ -223,7 +232,6 @@ export const LiveMap: React.FC<LiveMapProps> = ({
     : [22.0, 58.0];
 
   const activeHealth = activeShip?.health ?? 100;
-  const isDegraded = activeHealth < 80;
   const activeStatusColor = getVesselStatusColor(activeHealth);
   const showVessels = currentZoom >= MIN_VESSEL_ZOOM;
 
@@ -388,7 +396,6 @@ export const LiveMap: React.FC<LiveMapProps> = ({
             <p className="port-call-note">
               {portCall.reportedArrivalUtc && <>Reported ETA {formatUtc(portCall.reportedArrivalUtc)}. </>}
               ETA uses the stored speed and MPC route. Demo berth hours {DEMO_BERTH_HOURS}. Confirm actual availability with the port.
-              {!portCall.fitsPublishedDemoLimits && ' Vessel exceeds MPC’s modeled port size limits.'}
             </p>
             {portWeather?.forecast && (
               <p className="port-call-note">{formatUtc(portWeather.forecast.forecastTimeUtc)} ·{' '}
@@ -398,6 +405,46 @@ export const LiveMap: React.FC<LiveMapProps> = ({
           </>
         ) : <p className="port-call-note">No MPC destination for this vessel.</p>}
       </section>
+
+      {repairShip && (
+        <section className="port-call" aria-label="Nearby repair ports">
+          <div className="port-call-heading">
+            <div>
+              <h2>Nearby repair ports</h2>
+              <p>{repairShip.name} · Within {REPAIR_PORT_RADIUS_NM} NM</p>
+            </div>
+            <a href={REPAIR_PORT_SOURCE} target="_blank" rel="noreferrer">World Port Index</a>
+          </div>
+          {repairError ? (
+            <div className="port-layer-control" role="status">
+              <p>Repair port data unavailable.</p>
+              <button type="button" className="dashboard-button" onClick={() => setRepairError(false)}>Retry</button>
+            </div>
+          ) : nearbyRepairs ? (
+            <>
+              {nearbyRepairs.fits.length === 0 && <p>No nearby repair port has published limits that confirm a fit.</p>}
+              {nearbyRepairs.fits.length > 0 && (
+                <ul className="repair-port-list" aria-label="Ports within published vessel limits">
+                  {nearbyRepairs.fits.map((port) => (
+                    <li key={port.id}><strong>{port.name}</strong><span>{Math.round(port.distanceNm)} NM · {port.repairService}</span></li>
+                  ))}
+                </ul>
+              )}
+              {nearbyRepairs.needsConfirmation.length > 0 && (
+                <details className="repair-port-unconfirmed">
+                  <summary>Other repair ports with incomplete vessel limits</summary>
+                  <ul className="repair-port-list">
+                    {nearbyRepairs.needsConfirmation.map((port) => (
+                      <li key={port.id}><strong>{port.name}</strong><span>{Math.round(port.distanceNm)} NM · {port.repairService}</span></li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+              <p className="port-call-note">Distances are straight-line. Confirm safe access, repair capability, and berth availability with the port.</p>
+            </>
+          ) : <p role="status">Loading repair port data…</p>}
+        </section>
+      )}
 
       {/* Map Viewport */}
       <div style={mapStyles.mapBox}>
@@ -423,6 +470,8 @@ export const LiveMap: React.FC<LiveMapProps> = ({
           />
 
           {showWorldwide && worldwidePorts && <WorldwidePortMarkers ports={worldwidePorts} />}
+          {nearbyRepairs && <RepairMarkers ports={nearbyRepairs.fits} fit />}
+          {nearbyRepairs && <RepairMarkers ports={nearbyRepairs.needsConfirmation} fit={false} />}
 
           {/* Dual-Layer Glowing Sea-Lane Route */}
           {routeData && routeData.coordinates.length > 1 && (
@@ -465,66 +514,6 @@ export const LiveMap: React.FC<LiveMapProps> = ({
             />
           ))}
 
-          {/* Purple Circular Maritime Port Beacons */}
-          {Object.values(MARITIME_PORTS).map((port) => {
-            const isDest = routeData?.destinationPort?.code === port.code;
-            const repairMatch = routeData?.recommendedRepairPorts.find(
-              (r) => r.port.code === port.code
-            );
-            const isRecommendedRepair = isDegraded && Boolean(repairMatch);
-
-            return (
-              <Marker
-                key={port.code}
-                position={port.coords}
-                icon={createPortIcon(isDest, isRecommendedRepair)}
-              >
-                <Popup>
-                  <div style={{ fontSize: '12px', lineHeight: 1.5, minWidth: '195px' }}>
-                    <div style={{ color: '#C084FC', fontWeight: 700 }}>
-                      {isDest
-                        ? 'Scheduled destination'
-                        : isRecommendedRepair
-                          ? 'Recommended repair port'
-                          : 'Maritime hub'}
-                    </div>
-                    <strong style={{ fontSize: '13px' }}>
-                      {port.name} ({port.code})
-                    </strong>
-                    <br />
-                    Max Draught: {port.maxDraught}m | Max LOA: {port.maxLoa}m
-                    <div>Berth availability unknown</div>
-                    {activeShip && (
-                      <div
-                        style={{
-                          marginTop: '6px',
-                          padding: '4px 6px',
-                          borderRadius: '4px',
-                          background:
-                            activeShip.maxDraught <= port.maxDraught &&
-                            activeShip.lengthOverall <= port.maxLoa
-                              ? 'rgba(16, 185, 129, 0.15)'
-                              : 'rgba(239, 68, 68, 0.15)',
-                          color:
-                            activeShip.maxDraught <= port.maxDraught &&
-                            activeShip.lengthOverall <= port.maxLoa
-                              ? '#34D399'
-                              : '#F87171',
-                          fontWeight: 700,
-                        }}
-                      >
-                        {activeShip.maxDraught <= port.maxDraught &&
-                        activeShip.lengthOverall <= port.maxLoa
-                          ? `✓ CLEARED FOR ${activeShip.name} (${activeShip.maxDraught}m)`
-                          : `✕ DRAUGHT/LOA EXCEEDED (${activeShip.maxDraught}m)`}
-                      </div>
-                    )}
-                  </div>
-                </Popup>
-              </Marker>
-            );
-          })}
-
           {/* Fleet Vessel Markers with Side-Anchored Callout HUD */}
           {showVessels &&
             mappableVessels.map((vessel) => {
@@ -535,6 +524,7 @@ export const LiveMap: React.FC<LiveMapProps> = ({
               return (
                 <Marker
                   key={vessel.id}
+                  title={vessel.name}
                   position={[vessel.latitude, vessel.longitude]}
                   icon={createCyberShipIcon(
                     markerColor,
@@ -543,7 +533,11 @@ export const LiveMap: React.FC<LiveMapProps> = ({
                     isCritical
                   )}
                   eventHandlers={{
-                    click: () => onSelectVessel(vessel.id),
+                    click: () => {
+                      setRepairVesselId(vesselNeedsRepair(vessel) ? vessel.id : null);
+                      setRepairError(false);
+                      onSelectVessel(vessel.id);
+                    },
                   }}
                 >
                   <Popup className="cyber-vessel-callout" offset={[164, -26]}>
@@ -607,6 +601,12 @@ export const LiveMap: React.FC<LiveMapProps> = ({
                             {vessel.imo} • {vessel.vesselType}
                           </span>
                         </div>
+                        {repairShip?.id === vessel.id && (
+                          <div style={mapStyles.calloutLabel}>
+                            {repairError ? 'REPAIR PORT DATA UNAVAILABLE' : nearbyRepairs
+                              ? `${nearbyRepairs.fits.length} REPAIR PORTS WITHIN PUBLISHED LIMITS` : 'LOOKING UP REPAIR PORTS…'}
+                          </div>
+                        )}
                         <div style={mapStyles.calloutRow}>
                           <span style={mapStyles.calloutLabel}>HULL HEALTH</span>
                           <strong style={{ color: markerColor }}>{vessel.health}%</strong>
@@ -632,24 +632,6 @@ export const LiveMap: React.FC<LiveMapProps> = ({
         </MapContainer>
       </div>
 
-      {/* Bottom Recommended Repair Strip when selected ship has warning/critical health */}
-      {activeShip && isDegraded && routeData && routeData.recommendedRepairPorts.length > 0 && (
-        <div style={mapStyles.repairStrip}>
-          <span style={{ color: '#BAE6FD', fontWeight: 600, fontSize: '13px' }}>
-            Repair ports for {activeShip.name} ({activeShip.maxDraught} m draught)
-          </span>
-          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-            {routeData.recommendedRepairPorts.map(({ port, distanceFromVesselNm, berthCleared }) => (
-              <span key={port.code} style={mapStyles.repairPill}>
-                <strong>{port.code}</strong> ({port.name}) • {distanceFromVesselNm} NM •{' '}
-                <span style={{ color: berthCleared ? '#10B981' : '#EF4444' }}>
-                  {berthCleared ? 'SIZE FIT' : 'EXCEEDS SIZE LIMITS'}
-                </span>
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 };
@@ -742,22 +724,6 @@ const mapStyles: Record<string, React.CSSProperties> = {
   calloutLabel: {
     color: '#64748B',
     fontSize: '10px',
-  },
-  repairStrip: {
-    backgroundColor: '#09121F',
-    border: '1px solid #263B51',
-    padding: '10px 14px',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '6px',
-  },
-  repairPill: {
-    backgroundColor: '#0F172A',
-    border: '1px solid #334155',
-    color: '#E2E8F0',
-    fontSize: '11px',
-    fontFamily: 'monospace',
-    padding: '4px 8px',
   },
 };
 

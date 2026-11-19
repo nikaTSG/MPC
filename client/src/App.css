@@ -279,6 +279,42 @@
   color: var(--accent);
 }
 
+.repair-port-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.repair-port-list li {
+  display: grid;
+  gap: 2px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+}
+
+.repair-port-list span,
+.repair-port-unconfirmed {
+  color: var(--muted);
+}
+
+.repair-port-unconfirmed > summary {
+  cursor: pointer;
+}
+
+.repair-beacon {
+  border: 2px solid #9ef5db;
+  border-radius: 50%;
+  background: #14765d;
+}
+
+.repair-beacon-unconfirmed {
+  border-color: #f9c87a;
+  background: #623e12;
+}
+
 .port-call-metrics {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
@@ -766,10 +802,6 @@
   overflow-wrap: anywhere;
 }
 
-.pdf-panel {
-  padding-bottom: 0;
-}
-
 .intake-form {
   display: grid;
   gap: 12px;
@@ -849,6 +881,12 @@
   border-left: 2px solid var(--line);
   border-radius: 4px var(--radius-card) var(--radius-card) 4px;
   background: var(--inset);
+}
+
+.simulated-fault {
+  display: grid;
+  gap: 3px;
+  border-left-color: #a97537;
 }
 
 .dashboard-error {
@@ -934,7 +972,7 @@
 
   .dashboard-views {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 

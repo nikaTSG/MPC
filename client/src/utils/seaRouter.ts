@@ -5,9 +5,6 @@ export interface MaritimePort {
   name: string;
   country: string;
   coords: [number, number];
-  maxDraught: number; // meters
-  maxLoa: number;     // meters
-  hasRepairDrydock: boolean;
 }
 
 interface SeaNode {
@@ -17,19 +14,19 @@ interface SeaNode {
 }
 
 export const MARITIME_PORTS: Record<string, MaritimePort> = {
-  NLRTM: { code: 'NLRTM', name: 'Port of Rotterdam', country: 'NL', coords: [51.95, 4.14], maxDraught: 24.0, maxLoa: 400, hasRepairDrydock: true },
-  ESALG: { code: 'ESALG', name: 'Port of Algeciras', country: 'ES', coords: [36.13, -5.43], maxDraught: 18.5, maxLoa: 400, hasRepairDrydock: true },
-  GRPIR: { code: 'GRPIR', name: 'Port of Piraeus', country: 'GR', coords: [37.94, 23.64], maxDraught: 16.5, maxLoa: 370, hasRepairDrydock: true },
-  EGPSD: { code: 'EGPSD', name: 'Port Said (Suez North)', country: 'EG', coords: [31.26, 32.31], maxDraught: 20.1, maxLoa: 400, hasRepairDrydock: false },
-  SAJED: { code: 'SAJED', name: 'Jeddah Islamic Port', country: 'SA', coords: [21.48, 39.15], maxDraught: 16.0, maxLoa: 350, hasRepairDrydock: true },
-  AEJEA: { code: 'AEJEA', name: 'Jebel Ali / Dubai', country: 'AE', coords: [25.01, 55.06], maxDraught: 17.0, maxLoa: 400, hasRepairDrydock: true },
-  INBOM: { code: 'INBOM', name: 'Mumbai / Nhava Sheva', country: 'IN', coords: [18.95, 72.95], maxDraught: 15.0, maxLoa: 350, hasRepairDrydock: true },
-  LKCMB: { code: 'LKCMB', name: 'Port of Colombo', country: 'LK', coords: [6.94, 79.84], maxDraught: 18.0, maxLoa: 400, hasRepairDrydock: true },
-  MYPKG: { code: 'MYPKG', name: 'Port Klang', country: 'MY', coords: [3.00, 101.39], maxDraught: 17.5, maxLoa: 400, hasRepairDrydock: false },
-  SGSIN: { code: 'SGSIN', name: 'Port of Singapore', country: 'SG', coords: [1.26, 103.82], maxDraught: 20.0, maxLoa: 400, hasRepairDrydock: true },
-  HKHKG: { code: 'HKHKG', name: 'Port of Hong Kong', country: 'HK', coords: [22.33, 114.13], maxDraught: 17.0, maxLoa: 400, hasRepairDrydock: true },
-  CNSHA: { code: 'CNSHA', name: 'Port of Shanghai', country: 'CN', coords: [31.23, 121.49], maxDraught: 16.5, maxLoa: 400, hasRepairDrydock: true },
-  JPTYO: { code: 'JPTYO', name: 'Port of Tokyo', country: 'JP', coords: [35.45, 139.65], maxDraught: 16.0, maxLoa: 370, hasRepairDrydock: true },
+  NLRTM: { code: 'NLRTM', name: 'Port of Rotterdam', country: 'NL', coords: [51.95, 4.14] },
+  ESALG: { code: 'ESALG', name: 'Port of Algeciras', country: 'ES', coords: [36.13, -5.43] },
+  GRPIR: { code: 'GRPIR', name: 'Port of Piraeus', country: 'GR', coords: [37.94, 23.64] },
+  EGPSD: { code: 'EGPSD', name: 'Port Said (Suez North)', country: 'EG', coords: [31.26, 32.31] },
+  SAJED: { code: 'SAJED', name: 'Jeddah Islamic Port', country: 'SA', coords: [21.48, 39.15] },
+  AEJEA: { code: 'AEJEA', name: 'Jebel Ali / Dubai', country: 'AE', coords: [25.01, 55.06] },
+  INBOM: { code: 'INBOM', name: 'Mumbai / Nhava Sheva', country: 'IN', coords: [18.95, 72.95] },
+  LKCMB: { code: 'LKCMB', name: 'Port of Colombo', country: 'LK', coords: [6.94, 79.84] },
+  MYPKG: { code: 'MYPKG', name: 'Port Klang', country: 'MY', coords: [3.00, 101.39] },
+  SGSIN: { code: 'SGSIN', name: 'Port of Singapore', country: 'SG', coords: [1.26, 103.82] },
+  HKHKG: { code: 'HKHKG', name: 'Port of Hong Kong', country: 'HK', coords: [22.33, 114.13] },
+  CNSHA: { code: 'CNSHA', name: 'Port of Shanghai', country: 'CN', coords: [31.23, 121.49] },
+  JPTYO: { code: 'JPTYO', name: 'Port of Tokyo', country: 'JP', coords: [35.45, 139.65] },
 };
 
 // Open-water waypoints + port nodes so routes never cross land
@@ -182,40 +179,22 @@ export interface SeaRouteResult {
   coordinates: [number, number][];
   destinationPort: MaritimePort | null;
   remainingNm: number;
-  recommendedRepairPorts: {
-    port: MaritimePort;
-    distanceFromVesselNm: number;
-    berthCleared: boolean;
-  }[];
 }
 
 export function computeMaritimeRoute(vessel: Vessel): SeaRouteResult {
   if (vessel.latitude === null || vessel.longitude === null) {
-    return { coordinates: [], destinationPort: null, remainingNm: 0, recommendedRepairPorts: [] };
+    return { coordinates: [], destinationPort: null, remainingNm: 0 };
   }
 
   const origin: [number, number] = [vessel.latitude, vessel.longitude];
   const destCode = vessel.destinationPortCode?.toUpperCase() ?? '';
   const destinationPort = MARITIME_PORTS[destCode] ?? null;
 
-  // Evaluate nearby drydock/repair ports against vessel's maxDraught & lengthOverall
-  const recommendedRepairPorts = Object.values(MARITIME_PORTS)
-    .filter((p) => p.hasRepairDrydock)
-    .map((port) => ({
-      port,
-      distanceFromVesselNm: Math.round(distanceNm(origin, port.coords)),
-      berthCleared:
-        vessel.maxDraught <= port.maxDraught && vessel.lengthOverall <= port.maxLoa,
-    }))
-    .sort((a, b) => a.distanceFromVesselNm - b.distanceFromVesselNm)
-    .slice(0, 3);
-
   if (!destinationPort || !SEA_NODES[destCode]) {
     return {
       coordinates: [origin],
       destinationPort: null,
       remainingNm: 0,
-      recommendedRepairPorts,
     };
   }
 
@@ -268,6 +247,5 @@ export function computeMaritimeRoute(vessel: Vessel): SeaRouteResult {
     coordinates: fullCoords,
     destinationPort,
     remainingNm: Math.round(totalNm),
-    recommendedRepairPorts,
   };
 }

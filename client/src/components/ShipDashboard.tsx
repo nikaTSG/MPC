@@ -16,9 +16,21 @@ type SectionId = 'stern' | 'midship' | 'bow';
 const DASHBOARD_VIEWS = [
   { id: 'diagnostics', label: 'Diagnostics' },
   { id: 'map', label: 'Route map' },
+  { id: 'intake', label: 'Intake' },
   { id: 'procurement', label: 'Procurement' },
 ] as const;
 type DashboardTab = (typeof DASHBOARD_VIEWS)[number]['id'];
+
+const SIMULATED_FAULT = {
+  severity: 'HIGH' as const,
+  faultSummary: 'Cylinder 3 fuel injector lost pressure and the exhaust temperature rose.',
+  extractedParts: [{
+    partNumber: 'W-FIV-992',
+    partName: 'Main Engine Fuel Injection Valve',
+    quantity: 2,
+    notes: 'Urgent delivery requested at the next port of call.',
+  }],
+};
 
 interface Subsystem {
   name: string;
@@ -178,6 +190,9 @@ export const ShipDashboard: React.FC = () => {
   const [actionBusyId, setActionBusyId] = useState<number | null>(null);
   const [lastPreviewUrl, setLastPreviewUrl] = useState<string | null>(null);
   const [simulatingFault, setSimulatingFault] = useState(false);
+  const [lastSimulatedFault, setLastSimulatedFault] = useState<{
+    vesselId: number; vesselName: string; previousHealth: number; newHealth: number; draftCount: number;
+  } | null>(null);
   const [simulationError, setSimulationError] = useState('');
   const [aiSettings, setAiSettings] = useState<AiSettings | null>(null);
   const [settingsRevision, setSettingsRevision] = useState(0);
@@ -254,7 +269,6 @@ export const ShipDashboard: React.FC = () => {
           portCall: call && {
             port: call.port.name, remainingNm: call.remainingNm, estimatedArrivalUtc: call.estimatedArrivalUtc,
             demoWaitMinutes: call.demoWaitMinutes, demoBerthTimeUtc: call.demoBerthTimeUtc,
-            fitsPublishedDemoLimits: call.fitsPublishedDemoLimits,
           },
         };
       }, 7_500),
@@ -298,21 +312,16 @@ export const ShipDashboard: React.FC = () => {
     setSimulationError('');
     try {
       setSimulatingFault(true);
-      await reportVesselFault({
-        vesselId: selectedVessel.id,
-        severity: 'HIGH',
-        faultSummary: 'High exhaust gas temperature & fuel injector pressure drop on Cylinder #3',
-        extractedParts: [
-          {
-            partNumber: 'MAN-B&W-6S50MC-INJ03',
-            partName: 'Fuel Injection Valve Assembly',
-            quantity: 2,
-            notes: 'Urgent delivery required at next port of call',
-          },
-        ],
+      const { healthUpdate, draftedOrders } = await reportVesselFault({
+        ...SIMULATED_FAULT, vesselId: selectedVessel.id,
       }, aiSettings);
+      setLastSimulatedFault({
+        vesselId: selectedVessel.id, vesselName: selectedVessel.name,
+        previousHealth: healthUpdate.previousHealth, newHealth: healthUpdate.newHealth,
+        draftCount: draftedOrders.length,
+      });
       await refetchOrders();
-      setActiveTab('procurement');
+      if (draftedOrders.length > 0) setActiveTab('procurement');
     } catch (error) {
       setSimulationError(error instanceof Error ? error.message : 'Could not process the fault report.');
     } finally {
@@ -347,6 +356,16 @@ export const ShipDashboard: React.FC = () => {
       setActionBusyId(null);
     }
   };
+
+  const faultNotice = lastSimulatedFault && (
+    <div className="dashboard-notice simulated-fault" role="status" aria-label="Simulated fault details">
+      <strong>Simulated fault · {lastSimulatedFault.vesselName}</strong>
+      <p>{SIMULATED_FAULT.faultSummary} Replace {SIMULATED_FAULT.extractedParts[0].partName} ({SIMULATED_FAULT.extractedParts[0].partNumber}).</p>
+      <p>Hull health {lastSimulatedFault.previousHealth}% → {lastSimulatedFault.newHealth}%.
+        {' '}{lastSimulatedFault.draftCount === 0 ? 'No supplier draft created.'
+          : `${lastSimulatedFault.draftCount} supplier ${lastSimulatedFault.draftCount === 1 ? 'draft' : 'drafts'} awaiting approval.`}</p>
+    </div>
+  );
 
   return (
     <div className="dashboard" data-view={activeTab}>
@@ -420,6 +439,7 @@ export const ShipDashboard: React.FC = () => {
 
         {activeTab === 'diagnostics' && (
           <section className={`dashboard-content${selectedVessel ? ' diagnostics-workspace' : ''}`} aria-label="Vessel diagnostics">
+            {selectedVessel && lastSimulatedFault?.vesselId === selectedVessel.id && faultNotice}
             {selectedVessel ? (
               <>
                 <ShipModel
@@ -471,7 +491,7 @@ export const ShipDashboard: React.FC = () => {
           dashboardContext={dashboardContext}
         />
 
-        <div className="dashboard-content pdf-panel" hidden={activeTab !== 'procurement'}>
+        <div className="dashboard-content" hidden={activeTab !== 'intake'}>
           <AiPdfWorkflow
             key={settingsRevision}
             settings={aiSettings}
@@ -479,11 +499,13 @@ export const ShipDashboard: React.FC = () => {
             blocked={simulatingFault}
             onBusyChange={setPdfBusy}
             onDraftsCreated={refetchOrders}
+            onViewDrafts={() => setActiveTab('procurement')}
           />
         </div>
 
         {activeTab === 'procurement' && (
           <section className="dashboard-content" aria-label="Procurement">
+            {faultNotice}
             {lastPreviewUrl && (
               <p className="dashboard-notice">
                 <a href={lastPreviewUrl} target="_blank" rel="noreferrer">Open email preview ↗</a>
