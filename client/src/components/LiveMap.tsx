@@ -83,9 +83,22 @@ const repairIcons = {
   unconfirmed: L.divIcon({ className: 'repair-beacon repair-beacon-unconfirmed', iconSize: [16, 16], iconAnchor: [8, 8] }),
 };
 
-function RepairMarkers({ ports, fit }: { ports: NearbyRepairPort[]; fit: boolean }) {
+function RepairMarkers({ ports, fit, markers, onPopupChange }: {
+  ports: NearbyRepairPort[];
+  fit: boolean;
+  markers: React.RefObject<Map<number, L.Marker>>;
+  onPopupChange: (id: number, open: boolean) => void;
+}) {
   return ports.map((port) => (
-    <Marker key={port.id} position={port.coords} icon={fit ? repairIcons.fit : repairIcons.unconfirmed} title={port.name}>
+    <Marker key={port.id} position={port.coords} icon={fit ? repairIcons.fit : repairIcons.unconfirmed} title={port.name}
+      ref={(marker) => {
+        if (marker) markers.current.set(port.id, marker);
+        else markers.current.delete(port.id);
+      }}
+      eventHandlers={{
+        popupopen: () => onPopupChange(port.id, true),
+        popupclose: () => onPopupChange(port.id, false),
+      }}>
       <Popup>
         <div className="repair-port-popup">
           <strong>{port.name}{port.code && ` · ${port.code}`}</strong>
@@ -96,6 +109,29 @@ function RepairMarkers({ ports, fit }: { ports: NearbyRepairPort[]; fit: boolean
       </Popup>
     </Marker>
   ));
+}
+
+function RepairPortList({ ports, label, selectedId, onSelect }: {
+  ports: NearbyRepairPort[];
+  label: string;
+  selectedId: number | null;
+  onSelect: (id: number) => void;
+}) {
+  return (
+    <ul className="repair-port-list" aria-label={label}>
+      {ports.map((port) => (
+        <li key={port.id}>
+          <button className="repair-port-row" type="button" aria-pressed={selectedId === port.id} onClick={() => onSelect(port.id)}>
+            <span className="repair-port-info">
+              <strong>{port.name}</strong>
+              <span>{port.repairService === 'Emergency Only' ? 'Emergency repairs only' : `${port.repairService} repairs`}</span>
+            </span>
+            <span className="repair-port-distance">{Math.round(port.distanceNm)} <small>NM</small></span>
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 // Tracks zoom level and pans smoothly to selected vessel without overriding user zoom
@@ -192,6 +228,8 @@ export const LiveMap: React.FC<LiveMapProps> = ({
   const [repairVesselId, setRepairVesselId] = useState<number | null>(null);
   const [repairPorts, setRepairPorts] = useState<RepairPort[] | null>(null);
   const [repairError, setRepairError] = useState(false);
+  const [openRepairPortId, setOpenRepairPortId] = useState<number | null>(null);
+  const repairMarkers = useRef(new Map<number, L.Marker>());
 
   useEffect(() => {
     if (!showWorldwide || worldwidePorts) return;
@@ -224,6 +262,19 @@ export const LiveMap: React.FC<LiveMapProps> = ({
   }, [checkRepairs, repairPorts, repairError]);
 
   const nearbyRepairs = repairShip && repairPorts ? findNearbyRepairPorts(repairShip, repairPorts) : null;
+  const showRepairPort = (id: number) => {
+    const marker = repairMarkers.current.get(id);
+    if (!marker) return;
+    if (marker.isPopupOpen()) {
+      marker.closePopup();
+      return;
+    }
+    marker.openPopup();
+    marker.getElement()?.closest('.leaflet-container')?.scrollIntoView({ block: 'nearest' });
+  };
+  const handleRepairPopup = (id: number, open: boolean) => {
+    setOpenRepairPortId((current) => open ? id : current === id ? null : current);
+  };
 
   const routeData = activeShip ? computeMaritimeRoute(activeShip) : null;
 
@@ -406,232 +457,230 @@ export const LiveMap: React.FC<LiveMapProps> = ({
         ) : <p className="port-call-note">No MPC destination for this vessel.</p>}
       </section>
 
-      {repairShip && (
-        <section className="port-call" aria-label="Nearby repair ports">
-          <div className="port-call-heading">
-            <div>
-              <h2>Nearby repair ports</h2>
-              <p>{repairShip.name} · Within {REPAIR_PORT_RADIUS_NM} NM</p>
-            </div>
-            <a href={REPAIR_PORT_SOURCE} target="_blank" rel="noreferrer">World Port Index</a>
-          </div>
-          {repairError ? (
-            <div className="port-layer-control" role="status">
-              <p>Repair port data unavailable.</p>
-              <button type="button" className="dashboard-button" onClick={() => setRepairError(false)}>Retry</button>
-            </div>
-          ) : nearbyRepairs ? (
-            <>
-              {nearbyRepairs.fits.length === 0 && <p>No nearby repair port has published limits that confirm a fit.</p>}
-              {nearbyRepairs.fits.length > 0 && (
-                <ul className="repair-port-list" aria-label="Ports within published vessel limits">
-                  {nearbyRepairs.fits.map((port) => (
-                    <li key={port.id}><strong>{port.name}</strong><span>{Math.round(port.distanceNm)} NM · {port.repairService}</span></li>
-                  ))}
-                </ul>
-              )}
-              {nearbyRepairs.needsConfirmation.length > 0 && (
-                <details className="repair-port-unconfirmed">
-                  <summary>Other repair ports with incomplete vessel limits</summary>
-                  <ul className="repair-port-list">
-                    {nearbyRepairs.needsConfirmation.map((port) => (
-                      <li key={port.id}><strong>{port.name}</strong><span>{Math.round(port.distanceNm)} NM · {port.repairService}</span></li>
-                    ))}
-                  </ul>
-                </details>
-              )}
-              <p className="port-call-note">Distances are straight-line. Confirm safe access, repair capability, and berth availability with the port.</p>
-            </>
-          ) : <p role="status">Loading repair port data…</p>}
-        </section>
-      )}
+      <div className="map-area">
+        <div className="map-viewport">
+          <MapContainer
+            center={mapCenter}
+            zoom={INITIAL_ZOOM}
+            minZoom={1}
+            style={{ position: 'absolute', inset: 0 }}
+          >
+            <MapCameraAndZoomController center={mapCenter} worldwide={showWorldwide} onZoomChange={setCurrentZoom} />
 
-      {/* Map Viewport */}
-      <div style={mapStyles.mapBox}>
-        <MapContainer
-          center={mapCenter}
-          zoom={INITIAL_ZOOM}
-          minZoom={1}
-          style={{ position: 'absolute', inset: 0 }}
-        >
-          <MapCameraAndZoomController center={mapCenter} worldwide={showWorldwide} onZoomChange={setCurrentZoom} />
-
-          <TileLayer
-            attribution="Tiles &copy; Esri"
-            url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}"
-            maxNativeZoom={13}
-            className="cyber-map-tiles"
-          />
-          <TileLayer
-            attribution="Labels &copy; Esri"
-            url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}"
-            maxNativeZoom={13}
-            className="cyber-map-tiles"
-          />
-
-          {showWorldwide && worldwidePorts && <WorldwidePortMarkers ports={worldwidePorts} />}
-          {nearbyRepairs && <RepairMarkers ports={nearbyRepairs.fits} fit />}
-          {nearbyRepairs && <RepairMarkers ports={nearbyRepairs.needsConfirmation} fit={false} />}
-
-          {/* Dual-Layer Glowing Sea-Lane Route */}
-          {routeData && routeData.coordinates.length > 1 && (
-            <>
-              <Polyline
-                positions={routeData.coordinates}
-                pathOptions={{
-                  color: activeStatusColor,
-                  weight: 9,
-                  opacity: 0.2,
-                  lineCap: 'round',
-                  lineJoin: 'round',
-                }}
-              />
-              <Polyline
-                positions={routeData.coordinates}
-                pathOptions={{
-                  color: activeStatusColor,
-                  weight: 2.5,
-                  opacity: 0.95,
-                  dashArray: '10, 8',
-                  className: 'cyber-route-line',
-                }}
-              />
-            </>
-          )}
-
-          {/* Waypoint Nodes along active route */}
-          {routeData?.coordinates.slice(1, -1).map((coord, idx) => (
-            <CircleMarker
-              key={`wp-${idx}`}
-              center={coord}
-              radius={2.5}
-              pathOptions={{
-                color: activeStatusColor,
-                fillColor: '#060B14',
-                fillOpacity: 1,
-                weight: 1.5,
-              }}
+            <TileLayer
+              attribution="Tiles &copy; Esri"
+              url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}"
+              maxNativeZoom={13}
+              className="cyber-map-tiles"
             />
-          ))}
+            <TileLayer
+              attribution="Labels &copy; Esri"
+              url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}"
+              maxNativeZoom={13}
+              className="cyber-map-tiles"
+            />
 
-          {/* Fleet Vessel Markers with Side-Anchored Callout HUD */}
-          {showVessels &&
-            mappableVessels.map((vessel) => {
-              const isSelected = vessel.id === activeShip?.id;
-              const isCritical = vessel.health < 55;
-              const markerColor = getVesselStatusColor(vessel.health);
+            {showWorldwide && worldwidePorts && <WorldwidePortMarkers ports={worldwidePorts} />}
+            {nearbyRepairs && <RepairMarkers ports={nearbyRepairs.fits} fit markers={repairMarkers} onPopupChange={handleRepairPopup} />}
+            {nearbyRepairs && <RepairMarkers ports={nearbyRepairs.needsConfirmation} fit={false} markers={repairMarkers} onPopupChange={handleRepairPopup} />}
 
-              return (
-                <Marker
-                  key={vessel.id}
-                  title={vessel.name}
-                  position={[vessel.latitude, vessel.longitude]}
-                  icon={createCyberShipIcon(
-                    markerColor,
-                    vessel.heading ?? 0,
-                    isSelected,
-                    isCritical
-                  )}
-                  eventHandlers={{
-                    click: () => {
-                      setRepairVesselId(vesselNeedsRepair(vessel) ? vessel.id : null);
-                      setRepairError(false);
-                      onSelectVessel(vessel.id);
-                    },
+            {/* Dual-Layer Glowing Sea-Lane Route */}
+            {routeData && routeData.coordinates.length > 1 && (
+              <>
+                <Polyline
+                  positions={routeData.coordinates}
+                  pathOptions={{
+                    color: activeStatusColor,
+                    weight: 9,
+                    opacity: 0.2,
+                    lineCap: 'round',
+                    lineJoin: 'round',
                   }}
-                >
-                  <Popup className="cyber-vessel-callout" offset={[164, -26]}>
-                    <div
-                      style={{
-                        ...mapStyles.calloutCard,
-                        borderColor: markerColor,
-                        boxShadow: `0 0 22px ${markerColor}33`,
-                      }}
-                    >
-                      {/* Diagonal Leader Line from Ship Center to Bottom-Left Corner of Card */}
-                      <svg
-                        viewBox="0 0 42 28"
-                        style={{
-                          position: 'absolute',
-                          left: '-41px',
-                          bottom: '-27px',
-                          width: '42px',
-                          height: '28px',
-                          pointerEvents: 'none',
-                          overflow: 'visible',
-                        }}
-                      >
-                        <line
-                          x1="1"
-                          y1="26"
-                          x2="41"
-                          y2="0"
-                          stroke={markerColor}
-                          strokeWidth="1.75"
-                        />
-                        <circle cx="1" cy="26" r="2.8" fill={markerColor} />
-                      </svg>
+                />
+                <Polyline
+                  positions={routeData.coordinates}
+                  pathOptions={{
+                    color: activeStatusColor,
+                    weight: 2.5,
+                    opacity: 0.95,
+                    dashArray: '10, 8',
+                    className: 'cyber-route-line',
+                  }}
+                />
+              </>
+            )}
 
-                      {/* Header Row */}
+            {/* Waypoint Nodes along active route */}
+            {routeData?.coordinates.slice(1, -1).map((coord, idx) => (
+              <CircleMarker
+                key={`wp-${idx}`}
+                center={coord}
+                radius={2.5}
+                pathOptions={{
+                  color: activeStatusColor,
+                  fillColor: '#060B14',
+                  fillOpacity: 1,
+                  weight: 1.5,
+                }}
+              />
+            ))}
+
+            {/* Fleet Vessel Markers with Side-Anchored Callout HUD */}
+            {showVessels &&
+              mappableVessels.map((vessel) => {
+                const isSelected = vessel.id === activeShip?.id;
+                const isCritical = vessel.health < 55;
+                const markerColor = getVesselStatusColor(vessel.health);
+
+                return (
+                  <Marker
+                    key={vessel.id}
+                    title={vessel.name}
+                    position={[vessel.latitude, vessel.longitude]}
+                    icon={createCyberShipIcon(
+                      markerColor,
+                      vessel.heading ?? 0,
+                      isSelected,
+                      isCritical
+                    )}
+                    eventHandlers={{
+                      click: () => {
+                        setRepairVesselId(vesselNeedsRepair(vessel) ? vessel.id : null);
+                        setOpenRepairPortId(null);
+                        setRepairError(false);
+                        onSelectVessel(vessel.id);
+                      },
+                    }}
+                  >
+                    <Popup className="cyber-vessel-callout" offset={[164, -26]}>
                       <div
                         style={{
-                          ...mapStyles.calloutHeader,
-                          borderBottomColor: `${markerColor}44`,
+                          ...mapStyles.calloutCard,
+                          borderColor: markerColor,
+                          boxShadow: `0 0 22px ${markerColor}33`,
                         }}
                       >
-                        <strong style={{ color: markerColor, fontSize: '13px', letterSpacing: '0.4px' }}>
-                          {vessel.name}
-                        </strong>
-                        <span
+                        {/* Diagonal Leader Line from Ship Center to Bottom-Left Corner of Card */}
+                        <svg
+                          viewBox="0 0 42 28"
                           style={{
-                            ...mapStyles.calloutStatusTag,
-                            color: markerColor,
-                            borderColor: `${markerColor}55`,
+                            position: 'absolute',
+                            left: '-41px',
+                            bottom: '-27px',
+                            width: '42px',
+                            height: '28px',
+                            pointerEvents: 'none',
+                            overflow: 'visible',
                           }}
                         >
-                          {vessel.operationalStatus}
-                        </span>
-                      </div>
+                          <line
+                            x1="1"
+                            y1="26"
+                            x2="41"
+                            y2="0"
+                            stroke={markerColor}
+                            strokeWidth="1.75"
+                          />
+                          <circle cx="1" cy="26" r="2.8" fill={markerColor} />
+                        </svg>
 
-                      {/* Telemetry Rows */}
-                      <div style={mapStyles.calloutBody}>
-                        <div style={mapStyles.calloutRow}>
-                          <span style={mapStyles.calloutLabel}>IMO / TYPE</span>
-                          <span>
-                            {vessel.imo} • {vessel.vesselType}
+                        {/* Header Row */}
+                        <div
+                          style={{
+                            ...mapStyles.calloutHeader,
+                            borderBottomColor: `${markerColor}44`,
+                          }}
+                        >
+                          <strong style={{ color: markerColor, fontSize: '13px', letterSpacing: '0.4px' }}>
+                            {vessel.name}
+                          </strong>
+                          <span
+                            style={{
+                              ...mapStyles.calloutStatusTag,
+                              color: markerColor,
+                              borderColor: `${markerColor}55`,
+                            }}
+                          >
+                            {vessel.operationalStatus}
                           </span>
                         </div>
-                        {repairShip?.id === vessel.id && (
-                          <div style={mapStyles.calloutLabel}>
-                            {repairError ? 'REPAIR PORT DATA UNAVAILABLE' : nearbyRepairs
-                              ? `${nearbyRepairs.fits.length} REPAIR PORTS WITHIN PUBLISHED LIMITS` : 'LOOKING UP REPAIR PORTS…'}
+
+                        {/* Telemetry Rows */}
+                        <div style={mapStyles.calloutBody}>
+                          <div style={mapStyles.calloutRow}>
+                            <span style={mapStyles.calloutLabel}>IMO / TYPE</span>
+                            <span>
+                              {vessel.imo} • {vessel.vesselType}
+                            </span>
                           </div>
-                        )}
-                        <div style={mapStyles.calloutRow}>
-                          <span style={mapStyles.calloutLabel}>HULL HEALTH</span>
-                          <strong style={{ color: markerColor }}>{vessel.health}%</strong>
-                        </div>
-                        <div style={mapStyles.calloutRow}>
-                          <span style={mapStyles.calloutLabel}>DIMENSIONS</span>
-                          <span>
-                            {vessel.maxDraught}m D • {vessel.lengthOverall}m LOA
-                          </span>
-                        </div>
-                        <div style={mapStyles.calloutRow}>
-                          <span style={mapStyles.calloutLabel}>DESTINATION</span>
-                          <span style={{ color: '#E2E8F0', fontWeight: 700 }}>
-                            {vessel.destinationPortCode ?? 'UNASSIGNED'}
-                          </span>
+                          {repairShip?.id === vessel.id && (
+                            <div style={mapStyles.calloutLabel}>
+                              {repairError ? 'REPAIR PORT DATA UNAVAILABLE' : nearbyRepairs
+                                ? `${nearbyRepairs.fits.length} REPAIR PORTS WITHIN PUBLISHED LIMITS` : 'LOOKING UP REPAIR PORTS…'}
+                            </div>
+                          )}
+                          <div style={mapStyles.calloutRow}>
+                            <span style={mapStyles.calloutLabel}>HULL HEALTH</span>
+                            <strong style={{ color: markerColor }}>{vessel.health}%</strong>
+                          </div>
+                          <div style={mapStyles.calloutRow}>
+                            <span style={mapStyles.calloutLabel}>DIMENSIONS</span>
+                            <span>
+                              {vessel.maxDraught}m D • {vessel.lengthOverall}m LOA
+                            </span>
+                          </div>
+                          <div style={mapStyles.calloutRow}>
+                            <span style={mapStyles.calloutLabel}>DESTINATION</span>
+                            <span style={{ color: '#E2E8F0', fontWeight: 700 }}>
+                              {vessel.destinationPortCode ?? 'UNASSIGNED'}
+                            </span>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </Popup>
-                </Marker>
-              );
-            })}
-        </MapContainer>
-      </div>
+                    </Popup>
+                  </Marker>
+                );
+              })}
+          </MapContainer>
+        </div>
 
+        {repairShip && (
+          <section className="repair-panel" aria-label="Nearby repair ports">
+            <header className="repair-panel-header">
+              <h2>Nearby repair ports</h2>
+              <p><span>{repairShip.name}</span><span>{REPAIR_PORT_RADIUS_NM} NM radius</span></p>
+            </header>
+            {repairError ? (
+              <div className="port-layer-control" role="status">
+                <p>Repair port data unavailable.</p>
+                <button type="button" className="dashboard-button" onClick={() => setRepairError(false)}>Retry</button>
+              </div>
+            ) : nearbyRepairs ? (
+              <>
+                <div className="repair-panel-results">
+                  <h3>Within published limits</h3>
+                  {nearbyRepairs.fits.length === 0 ? <p className="port-call-note">No published dimensions confirm a fit.</p> : (
+                    <RepairPortList ports={nearbyRepairs.fits} label="Ports within published vessel limits" selectedId={openRepairPortId} onSelect={showRepairPort} />
+                  )}
+                  {nearbyRepairs.needsConfirmation.length > 0 && (
+                    <details key={repairShip.id} className="repair-port-unconfirmed">
+                      <summary>
+                        <span>Limits incomplete <small>{nearbyRepairs.needsConfirmation.length}</small></span>
+                        <span className="repair-disclosure-icon" aria-hidden="true" />
+                      </summary>
+                      <RepairPortList ports={nearbyRepairs.needsConfirmation} label="Ports with incomplete vessel limits" selectedId={openRepairPortId} onSelect={showRepairPort} />
+                    </details>
+                  )}
+                </div>
+                <footer className="repair-panel-footer">
+                  <p>Straight-line distances. Confirm safe access, repairs, and a berth with the port.</p>
+                  <a href={REPAIR_PORT_SOURCE} target="_blank" rel="noreferrer">World Port Index</a>
+                </footer>
+              </>
+            ) : <p role="status">Loading repair ports…</p>}
+          </section>
+        )}
+      </div>
     </div>
   );
 };
@@ -670,15 +719,6 @@ const mapStyles: Record<string, React.CSSProperties> = {
     color: '#94A3B8',
     fontSize: '12px',
     fontFamily: 'monospace',
-  },
-  mapBox: {
-    position: 'relative',
-    flex: 1,
-    minHeight: 'clamp(320px, 45dvh, 430px)',
-    width: '100%',
-    overflow: 'hidden',
-    border: '1px solid #263B51',
-    borderRadius: 'var(--radius-panel)',
   },
   calloutCard: {
     position: 'relative',

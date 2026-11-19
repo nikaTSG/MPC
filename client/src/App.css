@@ -279,29 +279,176 @@
   color: var(--accent);
 }
 
-.repair-port-list {
+.map-area {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.map-viewport {
+  position: relative;
+  flex: 999 1 465px;
+  min-width: 0;
+  min-height: clamp(320px, 45dvh, 430px);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+}
+
+.repair-panel {
+  flex: 1 1 290px;
+  align-self: flex-start;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--inset);
+}
+
+.repair-panel-header,
+.repair-panel-results,
+.repair-panel-footer,
+.repair-panel > [role="status"] {
+  padding: 12px 14px;
+}
+
+.repair-panel-header {
+  border-bottom: 1px solid var(--line);
+}
+
+.repair-panel-header h2 {
+  font-size: 15px;
+}
+
+.repair-panel-header p {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 2px 8px;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.repair-panel-results h3 {
+  margin: 0 0 5px;
+  color: #a4e4d1;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.repair-port-list {
   padding: 0;
   list-style: none;
 }
 
-.repair-port-list li {
-  display: grid;
-  gap: 2px;
-  padding: 6px 8px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-control);
+.repair-port-list li + li {
+  border-top: 1px solid var(--line);
 }
 
-.repair-port-list span,
-.repair-port-unconfirmed {
+.repair-port-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 6px 7px;
+  border: 0;
+  border-radius: var(--radius-control);
+  text-align: left;
+  color: var(--text);
+  background: transparent;
+}
+
+.repair-port-row[aria-pressed="true"] {
+  background: var(--raised);
+  box-shadow: inset 2px 0 #a4e4d1;
+}
+
+.repair-port-unconfirmed .repair-port-row[aria-pressed="true"] {
+  box-shadow: inset 2px 0 #f9c87a;
+}
+
+.repair-port-info {
+  display: grid;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.repair-port-info strong {
+  font-weight: 600;
+}
+
+.repair-port-info > span,
+.repair-port-distance small,
+.repair-port-unconfirmed small,
+.repair-panel-footer p {
   color: var(--muted);
+  font-size: 12px;
+}
+
+.repair-port-distance {
+  flex: none;
+  font: 13px/1.5 var(--mono);
+  white-space: nowrap;
+}
+
+.repair-port-unconfirmed {
+  margin-top: 8px;
+  border-top: 1px solid var(--line);
 }
 
 .repair-port-unconfirmed > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 32px;
+  list-style: none;
+  color: #f1c38a;
+  font-size: 12px;
   cursor: pointer;
+}
+
+.repair-port-unconfirmed > summary::-webkit-details-marker {
+  display: none;
+}
+
+.repair-port-unconfirmed > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.repair-port-unconfirmed small {
+  margin-inline-start: 4px;
+  font-family: var(--mono);
+}
+
+.repair-disclosure-icon {
+  width: 6px;
+  height: 6px;
+  margin-right: 4px;
+  border-right: 1px solid currentColor;
+  border-bottom: 1px solid currentColor;
+  transform: rotate(45deg);
+}
+
+.repair-port-unconfirmed[open] .repair-disclosure-icon {
+  transform: rotate(225deg);
+}
+
+.repair-panel-footer {
+  display: grid;
+  gap: 6px;
+  border-top: 1px solid var(--line);
+}
+
+.repair-panel-footer a {
+  justify-self: start;
+  color: var(--accent);
+  font-size: 12px;
 }
 
 .repair-beacon {
@@ -385,6 +532,7 @@
   flex-direction: column;
   gap: 8px;
   padding: 12px;
+  container-type: inline-size;
   background: var(--inset);
   border: 1px solid var(--line);
   border-radius: var(--radius-card);
@@ -402,29 +550,85 @@
   justify-content: space-between;
   color: var(--muted);
   font: 11px/1.4 var(--mono);
-  padding-inline: 4px;
+  overflow-wrap: anywhere;
 }
 
-.ship-blueprint > svg {
+.ship-blueprint-drawing {
+  position: relative;
+  width: min(100%, 107dvh, 1100px);
+  min-height: 124px;
+  aspect-ratio: 872 / 246;
+  align-self: center;
+  border-radius: 4px;
+  background-color: #0b1825;
+  background-image: linear-gradient(#152635 1px, transparent 1px), linear-gradient(90deg, #152635 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.ship-blueprint-drawing > svg {
   display: block;
   width: 100%;
-  height: clamp(114px, 29dvh, 345px);
-  font-family: var(--mono);
+  height: 100%;
+  position: absolute;
+  inset: 0;
+}
+
+.ship-blueprint-sections {
+  position: absolute;
+  inset: 0;
 }
 
 .blueprint-zone {
-  cursor: pointer;
+  position: absolute;
+  inset-block: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  touch-action: manipulation;
 }
 
-.blueprint-zone:hover > rect,
-.blueprint-zone:focus-visible > rect {
-  fill: #58bbeb;
-  fill-opacity: 0.16;
+.ship-blueprint button.blueprint-zone:not(:disabled):hover {
+  background-color: transparent;
 }
 
-.blueprint-zone:focus-visible > rect {
-  stroke: var(--accent);
-  stroke-width: 2;
+.blueprint-zone-label {
+  position: absolute;
+  top: 71%;
+  transform: translate(-50%, -50%);
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  color: #bed3e1;
+  font: 500 clamp(11px, 1.4cqi, 14px)/1.15 var(--mono);
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
+.blueprint-zone-label strong {
+  font-size: clamp(14px, 2cqi, 22px);
+  font-variant-numeric: tabular-nums;
+}
+
+.blueprint-zone[aria-pressed="true"] .blueprint-zone-label {
+  color: #f1f8fd;
+  font-weight: 700;
+}
+
+.ship-blueprint .blueprint-zone:focus-visible {
+  outline: none;
+}
+
+.blueprint-zone:focus-visible .blueprint-zone-label {
+  outline: 2px solid #e1f5ff;
+  outline-offset: 3px;
+}
+
+@media (hover: hover) {
+  .blueprint-zone:hover .blueprint-zone-label {
+    background: #17394f;
+    box-shadow: 0 0 0 3px #17394f;
+    color: white;
+  }
 }
 
 .fleet-alerts button[aria-pressed="true"] {
