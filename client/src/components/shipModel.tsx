@@ -48,16 +48,6 @@ export const VesselBlueprint: React.FC<VesselBlueprintProps> = ({
         .hull-zone.selected {
           filter: drop-shadow(0 0 12px rgba(34, 211, 238, 0.45));
         }
-        @keyframes blueprintScan {
-          0% { transform: translateX(65px); opacity: 0; }
-          10% { opacity: 0.85; }
-          90% { opacity: 0.85; }
-          100% { transform: translateX(885px); opacity: 0; }
-        }
-        .cyber-scan-beam {
-          animation: blueprintScan 5.5s linear infinite;
-          pointer-events: none;
-        }
         @keyframes radarSpin {
           0%, 100% { transform: scaleX(1); }
           50% { transform: scaleX(0.15); }
@@ -122,12 +112,6 @@ export const VesselBlueprint: React.FC<VesselBlueprintProps> = ({
             <stop offset="100%" stopColor="#0F766E" stopOpacity="0.08" />
           </linearGradient>
 
-          <linearGradient id="scanBeamGrad" x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stopColor="#22D3EE" stopOpacity="0" />
-            <stop offset="50%" stopColor="#22D3EE" stopOpacity="0.28" />
-            <stop offset="100%" stopColor="#22D3EE" stopOpacity="0" />
-          </linearGradient>
-
           <linearGradient id="seaWaterGrad" x1="0" y1="215" x2="0" y2="290" gradientUnits="userSpaceOnUse">
             <stop offset="0%" stopColor="#0EA5E9" stopOpacity="0.16" />
             <stop offset="100%" stopColor="#020617" stopOpacity="0" />
@@ -144,7 +128,7 @@ export const VesselBlueprint: React.FC<VesselBlueprintProps> = ({
         {/* Frame Station Ticks & Reference Lines */}
         <line x1="36" y1="215" x2="904" y2="215" stroke="#38BDF8" strokeWidth="1" strokeDasharray="6 4" strokeOpacity="0.55" />
         <text x="38" y="210" fill="#38BDF8" fontSize="9" fontFamily="monospace" opacity="0.8">
-          WL // {vessel?.maxDraught ?? 14.5}M
+          Waterline
         </text>
 
         <line x1="55" y1="276" x2="885" y2="276" stroke="#334155" strokeWidth="1" />
@@ -267,7 +251,7 @@ export const VesselBlueprint: React.FC<VesselBlueprintProps> = ({
             />
             <polyline points="236,220 252,182 280,182" fill="none" stroke={sternColor} strokeWidth="1" />
             <text x="242" y="178" fill={sternColor} fontSize="8.5" fontFamily="monospace" fontWeight="700">
-              PROP // {sections.stern.health}%
+              Propeller
             </text>
           </g>
         </g>
@@ -433,7 +417,7 @@ export const VesselBlueprint: React.FC<VesselBlueprintProps> = ({
               className={sections.midship.health < 70 ? 'critical-pulse' : ''}
             />
             <text x="392" y="236" fill={midColor} fontSize="8.5" fontFamily="monospace" fontWeight="700">
-              HOLDS // {sections.midship.health}%
+              Cargo holds
             </text>
           </g>
         </g>
@@ -495,20 +479,11 @@ export const VesselBlueprint: React.FC<VesselBlueprintProps> = ({
             />
             <polyline points="806,138 784,104 715,104" fill="none" stroke={bowColor} strokeWidth="1" />
             <text x="716" y="99" fill={bowColor} fontSize="8.5" fontFamily="monospace" fontWeight="700">
-              FWD // {sections.bow.health}%
+              Bow
             </text>
           </g>
         </g>
 
-        {/* Animated Laser Diagnostic Scanner Beam */}
-        <rect
-          x="0"
-          y="16"
-          width="36"
-          height="280"
-          fill="url(#scanBeamGrad)"
-          className="cyber-scan-beam"
-        />
       </svg>
 
       {/* Bottom Telemetry Caption */}

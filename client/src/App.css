@@ -63,8 +63,7 @@
 .fleet-toolbar,
 .vessel-field,
 .order-actions,
-.order-meta,
-.chat-form {
+.order-meta {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -82,7 +81,8 @@
 }
 
 .vessel-field label,
-.order-editor label {
+.order-editor label,
+.chat-form label {
   color: var(--muted);
   font-size: 13px;
 }
@@ -413,9 +413,18 @@
   font-size: 12px;
 }
 
+.chat-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 4px 8px;
+}
+
+.chat-form label {
+  grid-column: 1 / -1;
+}
+
 .chat-form input {
-  flex: 1 1 0;
-  width: 0;
   min-width: 0;
 }
 
@@ -463,10 +472,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .dashboard .cyber-scan-beam {
-    display: none;
-  }
-
   .dashboard :is(.radar-scanner-bar, .critical-pulse, .cyber-radar-ring, .cyber-route-line) {
     animation: none;
   }

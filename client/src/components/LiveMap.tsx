@@ -165,9 +165,8 @@ export const LiveMap: React.FC<LiveMapProps> = ({
         .leaflet-popup-content-wrapper, .leaflet-popup-tip {
           background: rgba(11, 19, 32, 0.95) !important;
           color: #F8FAFC !important;
-          border: 1px solid #A855F7;
-          box-shadow: 0 0 18px rgba(168, 85, 247, 0.28);
-          border-radius: 8px;
+          border: 1px solid #263B51;
+          border-radius: 0;
         }
         .leaflet-popup-close-button {
           color: #94A3B8 !important;
@@ -359,10 +358,10 @@ export const LiveMap: React.FC<LiveMapProps> = ({
                   <div style={{ fontSize: '12px', lineHeight: 1.5, minWidth: '195px' }}>
                     <div style={{ color: '#C084FC', fontWeight: 700 }}>
                       {isDest
-                        ? '◉ SCHEDULED DESTINATION'
+                        ? 'Scheduled destination'
                         : isRecommendedRepair
-                          ? '◉ RECOMMENDED REPAIR PORT'
-                          : '○ MARITIME HUB'}
+                          ? 'Recommended repair port'
+                          : 'Maritime hub'}
                     </div>
                     <strong style={{ fontSize: '13px' }}>
                       {port.name} ({port.code})

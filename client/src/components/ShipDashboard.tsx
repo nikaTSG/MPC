@@ -507,10 +507,10 @@ export const ShipDashboard: React.FC = () => {
             ))}
           </div>
           <form onSubmit={handleSendMessage} className="chat-form">
+            <label htmlFor="chat-message">Message</label>
             <input
+              id="chat-message"
               type="text"
-              aria-label="Message"
-              placeholder="Message"
               value={chatInput}
               onChange={(event) => setChatInput(event.target.value)}
             />
