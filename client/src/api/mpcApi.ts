@@ -1,5 +1,39 @@
 export type FaultSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 
+export const AI_PROVIDERS = {
+  openai: 'OpenAI',
+  gemini: 'Google Gemini',
+  anthropic: 'Anthropic Claude',
+} as const;
+
+export type AiProvider = keyof typeof AI_PROVIDERS;
+export type AiModels = Record<AiProvider, string[]>;
+
+export interface AiSettings {
+  provider: AiProvider;
+  model: string;
+  apiKey: string;
+}
+
+export interface AiChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export const MAX_PDF_SIZE = 5 * 1024 * 1024;
+
+export interface ExtractedPart {
+  partNumber: string;
+  partName: string;
+  quantity: number;
+  notes?: string | null;
+}
+
+export interface PdfReport {
+  summary: string;
+  parts: ExtractedPart[];
+}
+
 export interface Vessel {
   id: number;
   imo: string;
@@ -32,12 +66,12 @@ export interface FaultReportPayload {
   vesselId: number;
   severity: FaultSeverity;
   faultSummary?: string;
-  extractedParts: {
-    partNumber: string;
-    partName: string;
-    quantity: number;
-    notes?: string;
-  }[];
+  extractedParts: ExtractedPart[];
+}
+
+interface FaultReportResult {
+  healthUpdate: { vessel: Vessel; previousHealth: number; newHealth: number; penalty: number };
+  draftedOrders: OrderDraft[];
 }
 
 export interface OrderDraft {
@@ -53,12 +87,12 @@ export interface OrderDraft {
 }
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
+  const headers = new Headers(options?.headers);
+  if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+
   const res = await fetch(url, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...options?.headers,
-    },
     ...options,
+    headers,
   });
 
   const rawText = await res.text();
@@ -83,6 +117,15 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   return data as T;
 }
 
+function requestAi<T>(path: 'chat' | 'pdf' | 'drafts' | 'report', settings: AiSettings, payload: object) {
+  return request<T>(`/api/v1/ai/${path}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${settings.apiKey}` },
+    body: JSON.stringify({ ...payload, provider: settings.provider, model: settings.model }),
+    cache: 'no-store',
+  });
+}
+
 // Safely unwraps either `[...]` or `{ [key]: [...] }` or `{ data: [...] }`
 function extractArray<T>(payload: unknown, key: string): T[] {
   if (Array.isArray(payload)) return payload;
@@ -95,6 +138,17 @@ function extractArray<T>(payload: unknown, key: string): T[] {
 }
 
 export const mpcApi = {
+  getAiModels: () => request<AiModels>('/api/v1/ai/models', { cache: 'no-store' }),
+
+  sendAiMessage: (settings: AiSettings, messages: AiChatMessage[]) =>
+    requestAi<{ reply: string }>('chat', settings, { messages }),
+
+  readPdf: (settings: AiSettings, filename: string, fileData: string) =>
+    requestAi<PdfReport>('pdf', settings, { filename, fileData }),
+
+  generateAiDrafts: (settings: AiSettings, vesselId: number, extractedParts: ExtractedPart[]) =>
+    requestAi<OrderDraft[]>('drafts', settings, { vesselId, extractedParts }),
+
   getVessels: async (): Promise<Vessel[]> => {
     const raw = await request<unknown>('/api/v1/vessels');
     return extractArray<Vessel>(raw, 'vessels');
@@ -102,14 +156,13 @@ export const mpcApi = {
 
   getVesselById: (id: number) => request<Vessel>(`/api/v1/vessels/${id}`),
 
-  submitFaultReport: (payload: FaultReportPayload) =>
-    request<{
-      healthUpdate: { vessel: Vessel; previousHealth: number; newHealth: number; penalty: number };
-      draftedOrders: OrderDraft[];
-    }>('/api/v1/reports', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
+  submitFaultReport: (payload: FaultReportPayload, settings?: AiSettings) =>
+    settings
+      ? requestAi<FaultReportResult>('report', settings, payload)
+      : request<FaultReportResult>('/api/v1/reports', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        }),
 
   getOrders: async (status: string): Promise<OrderDraft[]> => {
     const raw = await request<unknown>(`/api/v1/orders?status=${encodeURIComponent(status)}`);

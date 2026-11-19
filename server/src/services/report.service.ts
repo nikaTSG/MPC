@@ -1,5 +1,7 @@
-import { vesselService, type FaultSeverity } from './vessel.service.js';
+import { db } from '../../prisma/db.js';
+import { calculateFaultDamage, vesselService, type FaultSeverity } from './vessel.service.js';
 import { orderService, type ExtractedPartInput } from './order.service.js';
+import type { AiCredentials } from '../integrations/ai/aiProvider.js';
 
 export interface IncomingFaultReport {
   vesselId: number;
@@ -9,23 +11,54 @@ export interface IncomingFaultReport {
 }
 
 export const reportService = {
-  async processFaultReport(input: IncomingFaultReport) {
-    // 1. Apply deterministic health penalty to the vessel
-    const healthUpdate = await vesselService.applyFaultDamage(
+  async processFaultReport(input: IncomingFaultReport, credentials?: AiCredentials) {
+    if (!credentials) {
+      // Preserve the legacy API's established health-first behavior.
+      const healthUpdate = await vesselService.applyFaultDamage(
+        input.vesselId,
+        input.severity,
+        input.extractedParts.length,
+      );
+      const draftedOrders = await orderService.generateDraftsFromReport(
+        input.vesselId,
+        input.extractedParts,
+      );
+
+      return { healthUpdate, draftedOrders };
+    }
+
+    // Resolve the model output before opening a write transaction. A rejected
+    // key or failed provider request therefore changes no database state.
+    const prepared = await orderService.prepareDraftsFromReport(
       input.vesselId,
-      input.severity,
-      input.extractedParts.length
+      input.extractedParts,
+      credentials,
     );
 
-    // 2. Reuse your existing AI procurement pipeline to draft supplier RFQs
-    const draftedOrders = await orderService.generateDraftsFromReport(
-      input.vesselId,
-      input.extractedParts
-    );
+    return db.transaction(async (tx) => {
+      const vessel = await tx.orm.Vessel.where((row) => row.id.eq(input.vesselId)).first();
+      if (!vessel) throw new Error(`Vessel with ID ${input.vesselId} not found`);
 
-    return {
-      healthUpdate,
-      draftedOrders,
-    };
+      const damage = calculateFaultDamage(vessel.health, input.severity, input.extractedParts.length);
+      const updatedVessel = await tx.orm.Vessel
+        .where((row) => row.id.eq(input.vesselId))
+        .update({
+          health: damage.newHealth,
+          operationalStatus:
+            damage.newHealth < 70 ? 'MAINTENANCE_REQUIRED' : vessel.operationalStatus,
+        });
+      if (!updatedVessel) throw new Error(`Vessel with ID ${input.vesselId} not found`);
+
+      const draftedOrders = await orderService.persistPreparedDrafts(
+        prepared,
+        (order) => tx.orm.Order.create(order),
+        updatedVessel,
+      );
+
+      return {
+        healthUpdate: { vessel: updatedVessel, ...damage },
+        draftedOrders,
+      };
+    });
   },
 };

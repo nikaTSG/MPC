@@ -1,5 +1,6 @@
 import { db } from '../../prisma/db.js';
 import { draftSupplierEmails } from '../integrations/ai/orderAgent.js';
+import type { AiCredentials } from '../integrations/ai/aiProvider.js';
 import { sendSupplierEmail } from '../integrations/email/nodemailer.js';
 
 export type ExtractedPartInput = {
@@ -9,54 +10,95 @@ export type ExtractedPartInput = {
   notes?: string | null;
 };
 
-export const orderService = { 
-  //!KOUKH EDW KANEIS DOULITSA  
+type OrderCreateInput = {
+  vesselId: number;
+  supplierId: number;
+  subject: string;
+  body: string;
+  items: ExtractedPartInput[];
+  urgency: 'LOW' | 'NORMAL' | 'CRITICAL';
+  status: 'PENDING_APPROVAL';
+};
+
+async function prepareSupplierDrafts(
+  vesselId: number,
+  extractedParts: ExtractedPartInput[],
+  credentials?: AiCredentials,
+) {
+  const vessel = await db.orm.Vessel.where((v) => v.id.eq(vesselId)).first();
+  if (!vessel) {
+    throw new Error(`Vessel with ID ${vesselId} not found`);
+  }
+
+  const suppliers = await db.orm.Supplier.all();
+  const agentResult = await draftSupplierEmails({ vessel, extractedParts, suppliers }, credentials);
+  return { vessel, suppliers, drafts: agentResult.drafts };
+}
+
+export type PreparedSupplierDrafts = Awaited<ReturnType<typeof prepareSupplierDrafts>>;
+
+async function persistPreparedSupplierDrafts<Order extends object>(
+  prepared: PreparedSupplierDrafts,
+  createOrder: (input: OrderCreateInput) => Promise<Order>,
+  vesselForResponse: PreparedSupplierDrafts['vessel'] = prepared.vessel,
+) {
+  const supplierMap = new Map(prepared.suppliers.map((supplier) => [supplier.id, supplier]));
+  const orders = [];
+
+  for (const draft of prepared.drafts) {
+    const order = await createOrder({
+      vesselId: prepared.vessel.id,
+      supplierId: draft.supplierId,
+      subject: draft.subject,
+      body: draft.body,
+      items: draft.matchedParts.map((part) => ({
+        partNumber: part.partNumber,
+        partName: part.partName,
+        quantity: part.quantity,
+        notes: part.notes ?? null,
+      })),
+      urgency: draft.urgency,
+      status: 'PENDING_APPROVAL',
+    });
+
+    orders.push({
+      ...order,
+      vessel: vesselForResponse,
+      supplier: supplierMap.get(draft.supplierId) ?? null,
+    });
+  }
+
+  return orders;
+}
+
+export const orderService = {
+  //!KOUKH EDW KANEIS DOULITSA
   //Generate AI drafts from parsed PDF parts and persist them as PENDING_APPROVAL
-  async generateDraftsFromReport(vesselId: number, extractedParts: ExtractedPartInput[]) {
-    const vessel = await db.orm.Vessel.where((v) => v.id.eq(vesselId)).first();
-    if (!vessel) {
-      throw new Error(`Vessel with ID ${vesselId} not found`);
-    }
+  async generateDraftsFromReport(
+    vesselId: number,
+    extractedParts: ExtractedPartInput[],
+    credentials?: AiCredentials,
+  ) {
+    const prepared = await prepareSupplierDrafts(vesselId, extractedParts, credentials);
+    return db.transaction((tx) =>
+      persistPreparedSupplierDrafts(prepared, (input) => tx.orm.Order.create(input)),
+    );
+  },
 
-    const suppliers = await db.orm.Supplier.all();
-    const supplierMap = new Map(suppliers.map((s) => [s.id, s]));
+  async prepareDraftsFromReport(
+    vesselId: number,
+    extractedParts: ExtractedPartInput[],
+    credentials: AiCredentials,
+  ) {
+    return prepareSupplierDrafts(vesselId, extractedParts, credentials);
+  },
 
-    const agentResult = await draftSupplierEmails({
-      vessel,
-      extractedParts,
-      suppliers,
-    });
-
-    const createdOrders = await db.transaction(async (tx) => {
-      const orders = [];
-
-      for (const draft of agentResult.drafts) {
-        const order = await tx.orm.Order.create({
-          vesselId: vessel.id,
-          supplierId: draft.supplierId,
-          subject: draft.subject,
-          body: draft.body,
-          items: draft.matchedParts.map((part) => ({
-            partNumber: part.partNumber,
-            partName: part.partName,
-            quantity: part.quantity,
-            notes: part.notes ?? null,
-          })),
-          urgency: draft.urgency,
-          status: 'PENDING_APPROVAL',
-        });
-
-        orders.push({
-          ...order,
-          vessel,
-          supplier: supplierMap.get(draft.supplierId) ?? null,
-        });
-      }
-
-      return orders;
-    });
-
-    return createdOrders;
+  async persistPreparedDrafts<Order extends object>(
+    prepared: PreparedSupplierDrafts,
+    createOrder: (input: OrderCreateInput) => Promise<Order>,
+    vesselForResponse: PreparedSupplierDrafts['vessel'] = prepared.vessel,
+  ) {
+    return persistPreparedSupplierDrafts(prepared, createOrder, vesselForResponse);
   },
 
   // 2. Fetch drafts filtered by status (defaults to PENDING_APPROVAL queue)

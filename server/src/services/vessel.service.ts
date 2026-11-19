@@ -9,6 +9,12 @@ const SEVERITY_PENALTY: Record<FaultSeverity, number> = {
   CRITICAL: 28,
 };
 
+export function calculateFaultDamage(previousHealth: number, severity: FaultSeverity, partCount: number) {
+  const penalty = SEVERITY_PENALTY[severity] + partCount * 2;
+  const newHealth = Math.max(0, Math.min(100, previousHealth - penalty));
+  return { previousHealth, newHealth, penalty };
+}
+
 export const vesselService = {
   // Fetch all vessels, ordered alphabetically by name
   async getAllVessels() {
@@ -36,9 +42,11 @@ export const vesselService = {
       throw new Error(`Vessel with ID ${vesselId} not found`);
     }
 
-    const penalty = SEVERITY_PENALTY[severity] + partCount * 2;
-    const previousHealth = vessel.health;
-    const newHealth = Math.max(0, Math.min(100, previousHealth - penalty));
+    const { previousHealth, newHealth, penalty } = calculateFaultDamage(
+      vessel.health,
+      severity,
+      partCount,
+    );
 
     const updatedVessel = await db.orm.Vessel
       .where((v) => v.id.eq(vesselId))

@@ -1,16 +1,20 @@
 import { useState, useEffect } from 'react';
 import type React from 'react';
+import AiChat from './AiChat';
+import AiPdfWorkflow from './AiPdfWorkflow';
+import AiSettingsPanel from './AiSettingsPanel';
 import LiveMap from './LiveMap';
 import ShipModel from './shipModel';
 import { useVessels } from '../hooks/useVessel';
 import { useOrders } from '../hooks/useOrder';
-import type { Vessel } from '../api/mpcApi';
+import type { AiSettings, Vessel } from '../api/mpcApi';
 
 type SectionId = 'stern' | 'midship' | 'bow';
 const DASHBOARD_VIEWS = [
   { id: 'diagnostics', label: 'Diagnostics' },
   { id: 'map', label: 'Route map' },
   { id: 'procurement', label: 'Procurement' },
+  { id: 'chat', label: 'AI chat' },
 ] as const;
 type DashboardTab = (typeof DASHBOARD_VIEWS)[number]['id'];
 
@@ -27,28 +31,6 @@ interface SectionData {
   health: number;
   subsystems: Subsystem[];
 }
-
-interface ChatMessage {
-  id: number;
-  sender: 'Vessel' | 'HQ';
-  text: string;
-  time: string;
-}
-
-const INITIAL_MESSAGES: ChatMessage[] = [
-  {
-    id: 1,
-    sender: 'Vessel',
-    text: 'Chief engineer standing by.',
-    time: '14:24',
-  },
-  {
-    id: 2,
-    sender: 'HQ',
-    text: 'Copy. Send the fault report once it is ready.',
-    time: '14:25',
-  },
-];
 
 const getHealthColor = (hp: number): string => {
   if (hp >= 80) return '#10B981';
@@ -160,15 +142,18 @@ export const ShipDashboard: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState<DashboardTab>('diagnostics');
   const [selectedSection, setSelectedSection] = useState<SectionId>('stern');
-  const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_MESSAGES);
-  const [chatInput, setChatInput] = useState<string>('');
-
   const [editingOrderId, setEditingOrderId] = useState<number | null>(null);
   const [draftSubject, setDraftSubject] = useState('');
   const [draftBody, setDraftBody] = useState('');
   const [actionBusyId, setActionBusyId] = useState<number | null>(null);
   const [lastPreviewUrl, setLastPreviewUrl] = useState<string | null>(null);
   const [simulatingFault, setSimulatingFault] = useState(false);
+  const [simulationError, setSimulationError] = useState('');
+  const [aiSettings, setAiSettings] = useState<AiSettings | null>(null);
+  const [settingsRevision, setSettingsRevision] = useState(0);
+  const [chatRevision, setChatRevision] = useState(0);
+  const [chatBusy, setChatBusy] = useState(false);
+  const [pdfBusy, setPdfBusy] = useState(false);
 
   useEffect(() => {
     if (!selectedVessel && vessels.length > 0) {
@@ -179,24 +164,19 @@ export const ShipDashboard: React.FC = () => {
   const sections = deriveSectionsFromVessel(selectedVessel);
   const activeData = sections[selectedSection];
 
-  const handleSendMessage = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!chatInput.trim()) return;
-
-    const now = new Date().toLocaleTimeString('en-GB', {
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-
-    setMessages((prev) => [
-      ...prev,
-      { id: Date.now(), sender: 'HQ', text: chatInput.trim(), time: now },
-    ]);
-    setChatInput('');
-  };
+  function changeAiSettings(settings: AiSettings | null) {
+    const credentialsChanged = settings?.apiKey !== aiSettings?.apiKey || settings?.provider !== aiSettings?.provider;
+    if (credentialsChanged) setChatRevision((revision) => revision + 1);
+    if (credentialsChanged || settings?.model !== aiSettings?.model) {
+      setAiSettings(settings);
+      setSettingsRevision((revision) => revision + 1);
+      setSimulationError('');
+    }
+  }
 
   const handleSimulateFault = async () => {
-    if (!selectedVessel || simulatingFault) return;
+    if (!selectedVessel || !aiSettings || simulatingFault || pdfBusy) return;
+    setSimulationError('');
     try {
       setSimulatingFault(true);
       await reportVesselFault({
@@ -211,11 +191,11 @@ export const ShipDashboard: React.FC = () => {
             notes: 'Urgent delivery required at next port of call',
           },
         ],
-      });
+      }, aiSettings);
       await refetchOrders();
       setActiveTab('procurement');
-    } catch (err) {
-      console.error('Fault simulation failed:', err);
+    } catch (error) {
+      setSimulationError(error instanceof Error ? error.message : 'Could not process the fault report.');
     } finally {
       setSimulatingFault(false);
     }
@@ -275,7 +255,7 @@ export const ShipDashboard: React.FC = () => {
               type="button"
               className="dashboard-button fault-button"
               onClick={handleSimulateFault}
-              disabled={!selectedVessel || simulatingFault}
+              disabled={!selectedVessel || !aiSettings || simulatingFault || pdfBusy}
             >
               {simulatingFault ? 'Processing report…' : 'Simulate fault report'}
             </button>
@@ -299,6 +279,7 @@ export const ShipDashboard: React.FC = () => {
         </div>
 
         {vesselsError && <p className="dashboard-error" role="alert">{vesselsError}</p>}
+        {simulationError && <p className="dashboard-error" role="alert">{simulationError}</p>}
 
         {activeTab === 'diagnostics' && (
           <section className="dashboard-content" aria-label="Vessel diagnostics">
@@ -359,6 +340,24 @@ export const ShipDashboard: React.FC = () => {
             />
           </section>
         )}
+
+        <AiChat
+          key={chatRevision}
+          active={activeTab === 'chat'}
+          settings={aiSettings}
+          onBusyChange={setChatBusy}
+        />
+
+        <div className="dashboard-content pdf-panel" hidden={activeTab !== 'procurement'}>
+          <AiPdfWorkflow
+            key={settingsRevision}
+            settings={aiSettings}
+            vessel={selectedVessel}
+            blocked={simulatingFault}
+            onBusyChange={setPdfBusy}
+            onDraftsCreated={refetchOrders}
+          />
+        </div>
 
         {activeTab === 'procurement' && (
           <section className="dashboard-content" aria-label="Procurement">
@@ -496,29 +495,11 @@ export const ShipDashboard: React.FC = () => {
           )}
         </section>
 
-        <section className="sidebar-panel" aria-labelledby="fleet-chat">
-          <h2 id="fleet-chat">Demo chat</h2>
-          <div className="chat-messages" role="log" aria-label="Demo messages">
-            {messages.map((message) => (
-              <div key={message.id} className="chat-message" data-sender={message.sender}>
-                <div className="chat-meta"><strong>{message.sender}</strong><span>{message.time}</span></div>
-                <div>{message.text}</div>
-              </div>
-            ))}
-          </div>
-          <form onSubmit={handleSendMessage} className="chat-form">
-            <label htmlFor="chat-message">Message</label>
-            <input
-              id="chat-message"
-              type="text"
-              value={chatInput}
-              onChange={(event) => setChatInput(event.target.value)}
-            />
-            <button type="submit" className="dashboard-button primary-button" disabled={!chatInput.trim()}>
-              Send
-            </button>
-          </form>
-        </section>
+        <AiSettingsPanel
+          settings={aiSettings}
+          busy={simulatingFault || pdfBusy || chatBusy}
+          onSettingsChange={changeAiSettings}
+        />
       </aside>
     </div>
   );

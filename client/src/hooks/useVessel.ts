@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { mpcApi, type Vessel, type FaultReportPayload } from '../api/mpcApi';
+import { mpcApi, type AiSettings, type Vessel, type FaultReportPayload } from '../api/mpcApi';
 
 export function useVessels() {
   const [vessels, setVessels] = useState<Vessel[]>([]);
@@ -25,8 +25,8 @@ export function useVessels() {
   }, [fetchVessels]);
 
   // Trigger a fault report and immediately sync the ship's new health on the map
-  const reportVesselFault = async (payload: FaultReportPayload) => {
-    const result = await mpcApi.submitFaultReport(payload);
+  const reportVesselFault = async (payload: FaultReportPayload, settings?: AiSettings) => {
+    const result = await mpcApi.submitFaultReport(payload, settings);
 
     setVessels((prev) =>
       prev.map((v) => (v.id === payload.vesselId ? result.healthUpdate.vessel : v))

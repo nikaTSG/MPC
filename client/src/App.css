@@ -82,6 +82,7 @@
 
 .vessel-field label,
 .order-editor label,
+.ai-settings-form label,
 .chat-form label {
   color: var(--muted);
   font-size: 13px;
@@ -177,6 +178,10 @@
   min-width: 0;
   gap: 16px;
   padding: clamp(12px, 2vw, 24px);
+}
+
+.dashboard-content[hidden] {
+  display: none;
 }
 
 .hull-sections {
@@ -388,22 +393,68 @@
 }
 
 .chat-messages {
-  display: grid;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
   gap: 8px;
-  max-height: 280px;
+  height: clamp(280px, 48svh, 520px);
+  min-height: 0;
   overflow: auto;
-  margin-bottom: 12px;
+  border: 1px solid var(--line);
+  background: var(--inset);
+  padding: clamp(12px, 2vw, 20px);
 }
 
-.chat-message {
-  padding: 8px 12px;
-  border-left: 2px solid var(--line);
-  background: var(--inset);
+.chat-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 32px;
+}
+
+.chat-heading h2 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 600;
+}
+
+.chat-model {
+  color: var(--muted);
+  font: 12px/1.4 var(--mono);
   overflow-wrap: anywhere;
 }
 
-.chat-message[data-sender="HQ"] {
+.chat-messages .chat-empty {
+  align-self: center;
+  margin-block: auto;
+  padding: 12px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.chat-message {
+  flex: none;
+  padding: 8px 12px;
+  border-left: 2px solid var(--line);
+  background: var(--panel);
+  overflow-wrap: anywhere;
+  width: fit-content;
+  max-width: min(100%, 72ch);
+}
+
+.chat-message[data-sender="assistant"] {
   border-left-color: #277c9e;
+}
+
+.chat-message[data-sender="user"] {
+  align-self: flex-end;
+  background: var(--raised);
+}
+
+.chat-message-text {
+  white-space: pre-wrap;
 }
 
 .chat-meta {
@@ -424,8 +475,98 @@
   grid-column: 1 / -1;
 }
 
-.chat-form input {
+.chat-form textarea {
   min-width: 0;
+  width: 100%;
+  resize: vertical;
+}
+
+.ai-settings-form {
+  display: grid;
+  gap: 6px;
+}
+
+.ai-settings-form :is(select, input) {
+  min-width: 0;
+  width: 100%;
+  margin-bottom: 4px;
+}
+
+.chat-key-note {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.ai-settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-block: 4px;
+}
+
+.chat-status {
+  color: var(--muted);
+}
+
+.chat-error {
+  color: #fecaca;
+  overflow-wrap: anywhere;
+}
+
+.pdf-panel {
+  padding-bottom: 0;
+}
+
+.pdf-upload {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 4px 8px;
+}
+
+.pdf-upload label {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.pdf-upload input {
+  min-width: 0;
+  width: 100%;
+}
+
+.pdf-upload input::file-selector-button {
+  margin-right: 6px;
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+}
+
+.pdf-result {
+  display: grid;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+
+.pdf-result h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.pdf-detail {
+  color: var(--muted);
+}
+
+.pdf-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .dashboard-empty,
@@ -446,7 +587,9 @@
   margin: 12px clamp(12px, 2vw, 24px) 0;
 }
 
-.dashboard-notice a {
+.dashboard-notice a,
+.chat-empty a,
+.pdf-detail a {
   color: var(--accent);
 }
 
@@ -468,6 +611,37 @@
 
   .subsystem-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 420px) {
+  .dashboard-views {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@keyframes chat-message-in {
+  from {
+    opacity: 0.65;
+    transform: translateY(5px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .chat-message:last-child {
+    animation: chat-message-in 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .dashboard-views button,
+  .chat-form .dashboard-button,
+  .ai-settings-actions .dashboard-button {
+    transition: background-color 140ms ease-out, border-color 140ms ease-out, color 140ms ease-out;
   }
 }
 
