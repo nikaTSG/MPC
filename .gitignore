@@ -18,6 +18,7 @@ dist-ssr
 /server/.claude/
 /server/.cursor/
 /server/.devin/
+/server/prisma/dev.db.local-*
 
 # Editor directories and files
 .vscode/*

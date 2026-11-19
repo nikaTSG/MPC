@@ -81,6 +81,12 @@ export interface WorldPort {
 
 let worldPorts: WorldPort[] | undefined;
 
+function portCoordinates(latitude: unknown, longitude: unknown): [number, number] | null {
+  return typeof latitude === 'number' && Math.abs(latitude) <= 90 &&
+    typeof longitude === 'number' && Math.abs(longitude) <= 180
+    ? [latitude, longitude] : null;
+}
+
 export async function getWorldPorts(signal: AbortSignal): Promise<WorldPort[]> {
   if (worldPorts) return worldPorts;
   const records = new Map<number, WorldPort>();
@@ -88,7 +94,7 @@ export async function getWorldPorts(signal: AbortSignal): Promise<WorldPort[]> {
   for (let offset = 0; offset < 10_000; offset += PORT_PAGE_SIZE) {
     const query = new URLSearchParams({
       where: '1=1',
-      outFields: 'objectid,port_name,country',
+      outFields: 'objectid,port_name,country,latitude,longitude',
       outSR: '4326',
       orderByFields: 'objectid',
       resultOffset: String(offset),
@@ -101,14 +107,14 @@ export async function getWorldPorts(signal: AbortSignal): Promise<WorldPort[]> {
     if (!Array.isArray(data.features)) break;
     for (const feature of data.features) {
       const { attributes, geometry } = feature ?? {};
-      if (!Number.isInteger(attributes?.objectid) || typeof attributes?.port_name !== 'string' ||
-          !Number.isFinite(geometry?.y) || Math.abs(geometry.y) > 90 ||
-          !Number.isFinite(geometry?.x) || Math.abs(geometry.x) > 180) continue;
+      const coords = portCoordinates(geometry?.y, geometry?.x) ??
+        portCoordinates(attributes?.latitude, attributes?.longitude);
+      if (!Number.isInteger(attributes?.objectid) || typeof attributes?.port_name !== 'string' || !coords) continue;
       records.set(attributes.objectid, {
         id: attributes.objectid,
         name: attributes.port_name,
         country: typeof attributes.country === 'string' ? attributes.country : '',
-        coords: [geometry.y, geometry.x],
+        coords,
       });
     }
     if (data.exceededTransferLimit !== true && data.features.length < PORT_PAGE_SIZE && records.size > 0) {

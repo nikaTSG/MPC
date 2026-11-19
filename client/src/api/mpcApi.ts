@@ -60,6 +60,15 @@ export interface IntakeReview {
   };
 }
 
+export interface ProcessedIntake {
+  id: string;
+  vesselId: number | null;
+  category: string;
+  subject: string | null;
+  filename: string | null;
+  createdAt: string;
+}
+
 export interface Vessel {
   id: number;
   imo: string;
@@ -154,7 +163,7 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   return data as T;
 }
 
-function requestAi<T>(path: 'pdf' | 'drafts' | 'report' | 'intake', settings: AiSettings, payload: object) {
+function requestAi<T>(path: 'pdf' | 'drafts' | 'report' | 'intake' | 'intake/process', settings: AiSettings, payload: object) {
   return request<T>(`/api/v1/ai/${path}`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${settings.apiKey}` },
@@ -256,9 +265,14 @@ export const mpcApi = {
   readIntake: (settings: AiSettings, source: IntakeSource & { body?: string; fileData?: string }) =>
     requestAi<IntakeReview>('intake', settings, source),
 
-  saveIntake: (review: IntakeReview, vesselId: number | null, source: IntakeSource) =>
-    request<{ id: string; vesselId: number | null; category: keyof typeof INTAKE_CATEGORIES }>('/api/v1/ai/intake/save', {
-      method: 'POST', body: JSON.stringify({ ...review, vesselId, ...source }),
+  processIntake: (settings: AiSettings, review: IntakeReview, vesselId: number | null, source: IntakeSource) =>
+    requestAi<{ id: string; vesselId: number | null; category: string; draftCount: number }>(
+      'intake/process', settings, { ...review, vesselId, ...source },
+    ),
+
+  getRecentIntakes: (signal: AbortSignal) =>
+    request<{ records: ProcessedIntake[]; latestEmail: ProcessedIntake | null }>('/api/v1/ai/intake/recent', {
+      method: 'POST', body: '{}', cache: 'no-store', signal,
     }),
 
   generateAiDrafts: (settings: AiSettings, vesselId: number, extractedParts: ExtractedPart[]) =>

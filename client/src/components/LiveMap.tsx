@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type React from 'react';
 import {
   MapContainer,
@@ -76,10 +76,12 @@ const getVesselStatusColor = (health: number): string => {
 // Tracks zoom level and pans smoothly to selected vessel without overriding user zoom
 const MapCameraAndZoomController: React.FC<{
   center: [number, number];
+  worldwide: boolean;
   onZoomChange: (zoom: number) => void;
-}> = ({ center, onZoomChange }) => {
+}> = ({ center, worldwide, onZoomChange }) => {
   const map = useMap();
   const [latitude, longitude] = center;
+  const vesselZoom = useRef<number | null>(null);
 
   useMapEvents({
     zoomend: () => {
@@ -88,12 +90,21 @@ const MapCameraAndZoomController: React.FC<{
   });
 
   useEffect(() => {
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      map.setView([latitude, longitude], map.getZoom(), { animate: false });
-    } else {
-      map.flyTo([latitude, longitude], map.getZoom(), { duration: 1.0 });
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (worldwide) {
+      if (vesselZoom.current !== null) return;
+      vesselZoom.current = map.getZoom();
+      map.fitBounds([[-60, -175], [78, 175]], { padding: [12, 12], animate: !reducedMotion });
+      return;
     }
-  }, [latitude, longitude, map]);
+    const zoom = vesselZoom.current ?? map.getZoom();
+    vesselZoom.current = null;
+    if (reducedMotion) {
+      map.setView([latitude, longitude], zoom, { animate: false });
+    } else {
+      map.flyTo([latitude, longitude], zoom, { duration: 1.0 });
+    }
+  }, [latitude, longitude, map, worldwide]);
 
   useEffect(() => {
     const observer = new ResizeObserver(() => map.invalidateSize({ pan: false }));
@@ -393,10 +404,10 @@ export const LiveMap: React.FC<LiveMapProps> = ({
         <MapContainer
           center={mapCenter}
           zoom={INITIAL_ZOOM}
-          minZoom={2}
+          minZoom={1}
           style={{ position: 'absolute', inset: 0 }}
         >
-          <MapCameraAndZoomController center={mapCenter} onZoomChange={setCurrentZoom} />
+          <MapCameraAndZoomController center={mapCenter} worldwide={showWorldwide} onZoomChange={setCurrentZoom} />
 
           <TileLayer
             attribution="Tiles &copy; Esri"

@@ -124,7 +124,7 @@ export default function VesselBlueprint({ vessel, sections, selectedSection, onS
         )}
       </div>
 
-      <svg viewBox="0 0 940 340" role="img" aria-label={`${type?.replaceAll('_', ' ') ?? 'Vessel'} schematic`}>
+      <svg viewBox="0 0 940 340" role="group" aria-label={`${type?.replaceAll('_', ' ') ?? 'Vessel'} schematic`}>
         <defs>
           <pattern id={grid} width="24" height="24" patternUnits="userSpaceOnUse">
             <path d="M24 0H0v24" fill="none" stroke="#20374b" strokeOpacity=".46" strokeWidth=".65" />
@@ -166,11 +166,14 @@ export default function VesselBlueprint({ vessel, sections, selectedSection, onS
             const color = healthColor(section.health);
             return (
               <g key={zone} data-zone={zone} data-selected={active || undefined} className="blueprint-zone"
-                onClick={() => onSelectSection(zone)}>
+                role="button" tabIndex={0} aria-pressed={active} aria-label={`${section.shortName}, ${section.health}% health`}
+                onClick={() => onSelectSection(zone)} onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    onSelectSection(zone);
+                  }
+                }}>
                 <rect x={left} y="175" width={right - left} height="110" fill={active ? '#58bbeb' : 'transparent'} fillOpacity={active ? '.09' : '1'} />
-                <path d={`M${labelX - 13} 244h${right - labelX - 32}`} fill="none" stroke={color}
-                  strokeOpacity={active ? '.75' : '.43'} strokeWidth={active ? '1.2' : '.8'} />
-                <circle cx={labelX - 13} cy="244" r="2.3" fill={color} />
                 <text x={labelX} y="220" fill="#a8c1d3" fontSize="9.5" letterSpacing="1.8">
                   {section.shortName.toUpperCase()}
                 </text>

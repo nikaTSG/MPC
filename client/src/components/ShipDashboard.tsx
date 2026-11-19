@@ -10,14 +10,13 @@ import { useVessels } from '../hooks/useVessel';
 import { useOrders } from '../hooks/useOrder';
 import { usePortWeather } from '../hooks/usePortWeather';
 import { DEMO_BERTH_HOURS, estimatePortCall } from '../utils/portCalls';
-import { VESSEL_CATEGORIES, type AiSettings, type OrderDraft, type Vessel } from '../api/mpcApi';
+import { mpcApi, VESSEL_CATEGORIES, type AiSettings, type OrderDraft, type ProcessedIntake, type Vessel } from '../api/mpcApi';
 
 type SectionId = 'stern' | 'midship' | 'bow';
 const DASHBOARD_VIEWS = [
   { id: 'diagnostics', label: 'Diagnostics' },
   { id: 'map', label: 'Route map' },
   { id: 'procurement', label: 'Procurement' },
-  { id: 'chat', label: 'AI chat' },
 ] as const;
 type DashboardTab = (typeof DASHBOARD_VIEWS)[number]['id'];
 
@@ -185,6 +184,9 @@ export const ShipDashboard: React.FC = () => {
   const [chatRevision, setChatRevision] = useState(0);
   const [chatBusy, setChatBusy] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
+  const [processedIntakes, setProcessedIntakes] = useState<{
+    status: 'loading' | 'ready' | 'unavailable'; records: ProcessedIntake[]; latestEmail: ProcessedIntake | null;
+  }>({ status: 'loading', records: [], latestEmail: null });
   const [now, setNow] = useState(Date.now);
   const views = useRef<HTMLDivElement>(null);
 
@@ -192,6 +194,19 @@ export const ShipDashboard: React.FC = () => {
     const interval = window.setInterval(() => setNow(Date.now()), 60_000);
     return () => window.clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (activeTab !== 'diagnostics') return;
+    const controller = new AbortController();
+    mpcApi.getRecentIntakes(controller.signal)
+      .then(({ records, latestEmail }) => {
+        if (!controller.signal.aborted) setProcessedIntakes({ status: 'ready', records, latestEmail });
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setProcessedIntakes({ status: 'unavailable', records: [], latestEmail: null });
+      });
+    return () => controller.abort();
+  }, [activeTab]);
 
   useEffect(() => {
     if (!selectedVessel && vessels.length > 0) {
@@ -223,7 +238,7 @@ export const ShipDashboard: React.FC = () => {
   const portCalls = useMemo(() => new Map(vessels.map((vessel) => [vessel.id, estimatePortCall(vessel, now)])), [vessels, now]);
   const selectedPortCall = selectedVessel ? portCalls.get(selectedVessel.id) ?? null : null;
   const portWeather = usePortWeather(selectedPortCall?.port ?? null, activeTab === 'map');
-  const dashboardContext = activeTab === 'chat' ? {
+  const dashboardContext = activeTab === 'diagnostics' ? {
     selectedVesselId: selectedVessel?.id ?? null,
     vessels: {
       source: 'Vessels connector via useVessels',
@@ -242,7 +257,7 @@ export const ShipDashboard: React.FC = () => {
             fitsPublishedDemoLimits: call.fitsPublishedDemoLimits,
           },
         };
-      }, 8_000),
+      }, 7_500),
     },
     selectedVesselDiagnostics: selectedVessel ? {
       source: 'Dashboard estimates based on aggregate vessel health',
@@ -251,7 +266,13 @@ export const ShipDashboard: React.FC = () => {
     pendingOrders: {
       source: 'Orders connector via useOrders, pending approval',
       status: ordersError ? 'unavailable' : ordersLoading ? 'loading' : 'ready',
-      ...boundedRecords(orders, summarizeOrder, 4_000),
+      ...boundedRecords(orders, summarizeOrder, 3_500),
+    },
+    processedDocuments: {
+      source: 'Intake connector, newest saved first. createdAt is when MPC saved the document.',
+      status: processedIntakes.status,
+      latestProcessedEmail: processedIntakes.latestEmail,
+      ...boundedRecords(processedIntakes.records, (record) => record, 1_000),
     },
     portCallProvenance: {
       eta: 'MPC remaining route distance divided by current stored speed. Position timestamp unavailable.',
@@ -328,7 +349,7 @@ export const ShipDashboard: React.FC = () => {
   };
 
   return (
-    <div className="dashboard">
+    <div className="dashboard" data-view={activeTab}>
       <main className="dashboard-main">
         <header className="dashboard-header">
           <h1>Maintenance Planner and Communicator</h1>
@@ -401,23 +422,6 @@ export const ShipDashboard: React.FC = () => {
           <section className={`dashboard-content${selectedVessel ? ' diagnostics-workspace' : ''}`} aria-label="Vessel diagnostics">
             {selectedVessel ? (
               <>
-                <div className="hull-sections" role="group" aria-label="Hull section">
-                  {(['stern', 'midship', 'bow'] as SectionId[]).map((id) => {
-                    const section = sections[id];
-                    return (
-                      <button
-                        key={id}
-                        type="button"
-                        aria-pressed={selectedSection === id}
-                        onClick={() => setSelectedSection(id)}
-                      >
-                        {section.shortName}
-                        <strong style={{ color: getHealthColor(section.health) }}>{section.health}%</strong>
-                      </button>
-                    );
-                  })}
-                </div>
-
                 <ShipModel
                   vessel={selectedVessel}
                   sections={sections}
@@ -461,7 +465,7 @@ export const ShipDashboard: React.FC = () => {
 
         <AiChat
           key={chatRevision}
-          active={activeTab === 'chat'}
+          active={activeTab === 'diagnostics'}
           settings={aiSettings}
           onBusyChange={setChatBusy}
           dashboardContext={dashboardContext}

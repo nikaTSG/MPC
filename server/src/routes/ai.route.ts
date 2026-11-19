@@ -18,7 +18,7 @@ import {
   readIntakeSource,
   type ReviewedIntake,
 } from '../integrations/ai/documentReader.js';
-import type { IntakeSaveResult } from '../services/intake.service.js';
+import type { IntakeProcessResult, IntakeSaveResult, RecentIntakeResult } from '../services/intake.service.js';
 
 const MAX_PDF_BYTES = 5 * 1024 * 1024;
 const MAX_PARTS = 25;
@@ -53,6 +53,8 @@ const PDF_INSTRUCTIONS = `Extract only maintenance facts and spare parts clearly
 
 export interface AiRouteDependencies {
   saveReviewedIntake(input: ReviewedIntake): Promise<IntakeSaveResult>;
+  processReviewedIntake(input: ReviewedIntake, credentials: AiCredentials): Promise<IntakeProcessResult>;
+  recentReviewedIntakes(): Promise<RecentIntakeResult>;
   requestAiText(credentials: AiCredentials, input: AiRequest): Promise<string>;
   streamAiText?(
     credentials: AiCredentials,
@@ -258,6 +260,20 @@ function readPdf(body: Record<string, unknown>): { pdf: NonNullable<AiRequest['p
     return { error: 'fileData must be a PDF no larger than 5 MiB' };
   }
   return { pdf: { filename: filename.trim(), base64: fileData } };
+}
+
+function readReviewedIntake(body: unknown): ReviewedIntake | { error: string } {
+  if (!isRecord(body) || typeof body.intakeId !== 'string' ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(body.intakeId)) {
+    return { error: 'A valid intake review ID is required.' };
+  }
+  const source = readIntakeSource(body);
+  const extraction = readIntakeExtraction(body.extraction);
+  const vesselId = body.vesselId ?? null;
+  if (!source || !extraction || !(vesselId === null || (typeof vesselId === 'number' && Number.isSafeInteger(vesselId) && vesselId > 0))) {
+    return { error: 'Invalid reviewed document fields or vessel selection.' };
+  }
+  return { intakeId: body.intakeId.toLowerCase(), vesselId, extraction, ...source };
 }
 
 function providerFailure(error: unknown): error is AiProviderError {
@@ -479,22 +495,37 @@ export function createAiRouter(dependencies: AiRouteDependencies) {
   });
 
   router.post('/intake/save', expressJson('128kb'), async (request, response) => {
-    const body = isRecord(request.body) ? request.body : null;
-    if (!body || typeof body.intakeId !== 'string' ||
-        !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(body.intakeId)) {
-      return response.status(400).json({ error: 'A valid intake review ID is required.' });
-    }
-    const source = readIntakeSource(body);
-    const extraction = readIntakeExtraction(body.extraction);
-    const vesselId = body.vesselId ?? null;
-    if (!source || !extraction || !(vesselId === null || (typeof vesselId === 'number' && Number.isSafeInteger(vesselId) && vesselId > 0))) {
-      return response.status(400).json({ error: 'Invalid reviewed document fields or vessel selection.' });
-    }
+    const input = readReviewedIntake(request.body);
+    if ('error' in input) return response.status(400).json(input);
     try {
-      const result = await dependencies.saveReviewedIntake({ intakeId: body.intakeId.toLowerCase(), vesselId, extraction, ...source });
+      const result = await dependencies.saveReviewedIntake(input);
       return response.status(result.status).json(result.body);
     } catch (error) {
       return serviceFailureResponse(response, error, 'Failed to save the reviewed document.');
+    }
+  });
+
+  router.post('/intake/process', expressJson('128kb'), async (request, response) => {
+    const credentials = readCredentials(request);
+    if (!credentials) {
+      return response.status(request.get('authorization') ? 400 : 401).json({ error: 'Valid provider, model, and bearer key are required' });
+    }
+    const input = readReviewedIntake(request.body);
+    if ('error' in input) return response.status(400).json(input);
+    try {
+      const result = await dependencies.processReviewedIntake(input, credentials);
+      return response.status(result.status).json(result.body);
+    } catch (error) {
+      return serviceFailureResponse(response, error, 'Failed to process the document and its supplier drafts.');
+    }
+  });
+
+  router.post('/intake/recent', async (_request, response) => {
+    try {
+      const result = await dependencies.recentReviewedIntakes();
+      return response.status(result.status).json(result.body);
+    } catch (error) {
+      return serviceFailureResponse(response, error, 'Failed to read recent processed documents.');
     }
   });
 

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
+import ChatReply from './ChatReply';
 import { AI_PROVIDERS, mpcApi } from '../api/mpcApi';
 import type { AiChatMessage, AiSettings } from '../api/mpcApi';
 
@@ -117,7 +118,8 @@ export default function AiChat({ settings, onBusyChange, active, dashboardContex
                   <span>Thinking</span>
                   <span className="chat-thinking-dots" aria-hidden="true"><i /><i /><i /></span>
                 </div>
-              ) : <div className="chat-message-text">{message.content}</div>}
+              ) : message.role === 'assistant' ? <ChatReply text={message.content} />
+                : <div className="chat-message-text">{message.content}</div>}
             </article>
           );
         })}
@@ -128,7 +130,7 @@ export default function AiChat({ settings, onBusyChange, active, dashboardContex
         <label htmlFor="chat-message">Message</label>
         <textarea
           id="chat-message"
-          rows={3}
+          rows={2}
           maxLength={MAX_MESSAGE_LENGTH}
           value={draft}
           disabled={!settings}

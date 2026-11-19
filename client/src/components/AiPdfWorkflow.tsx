@@ -11,6 +11,12 @@ interface AiPdfWorkflowProps {
   onDraftsCreated: () => Promise<void>;
 }
 
+function canDraft(review: IntakeReview) {
+  return review.extraction.category === 'DEFECT_REPORT' && review.extraction.parts.some(
+    (part) => part.partNumber && part.quantity !== null && part.quantity > 0,
+  );
+}
+
 function readBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -29,9 +35,8 @@ export default function AiPdfWorkflow({ settings, vessels, blocked, onBusyChange
   const [body, setBody] = useState('');
   const [report, setReport] = useState<{ review: IntakeReview; source: IntakeSource } | null>(null);
   const [vesselId, setVesselId] = useState<number | null>(null);
-  const [action, setAction] = useState<'read' | 'save' | 'draft' | null>(null);
+  const [action, setAction] = useState<'read' | 'process' | null>(null);
   const [error, setError] = useState('');
-  const [saved, setSaved] = useState(false);
   const [draftCount, setDraftCount] = useState<number | null>(null);
   const busy = action !== null || blocked;
   const findings = report?.review.extraction;
@@ -39,9 +44,15 @@ export default function AiPdfWorkflow({ settings, vessels, blocked, onBusyChange
 
   function clearReview() {
     setReport(null);
-    setSaved(false);
     setDraftCount(null);
     setError('');
+  }
+
+  async function processReview(settings: AiSettings, review: IntakeReview, id: number | null, source: IntakeSource) {
+    setAction('process');
+    const result = await mpcApi.processIntake(settings, review, id, source);
+    setDraftCount(result.draftCount);
+    if (result.draftCount > 0) await onDraftsCreated();
   }
 
   async function analyzeDocument(event: FormEvent<HTMLFormElement>) {
@@ -68,49 +79,26 @@ export default function AiPdfWorkflow({ settings, vessels, blocked, onBusyChange
       const { imo, vesselName } = review.extraction;
       const matches = vessels.filter((vessel) => imo ? vessel.imo === imo
         : vesselName?.trim().toLowerCase() === vessel.name.trim().toLowerCase());
-      setVesselId(matches.length === 1 ? matches[0].id : null);
+      const id = matches.length === 1 ? matches[0].id : null;
+      setVesselId(id);
       setReport({ review, source });
+      if (id !== null || !canDraft(review)) await processReview(settings, review, id, source);
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : 'Could not analyze this document.');
+      setError(failure instanceof Error ? failure.message : 'Could not process this document.');
     } finally {
       setAction(null);
       onBusyChange(false);
     }
   }
 
-  async function saveFindings() {
-    if (!report || busy || saved) return;
-    setAction('save');
+  async function retryOrProcessReview() {
+    if (!report || !settings || busy || draftCount !== null || (canDraft(report.review) && vesselId === null)) return;
     onBusyChange(true);
     setError('');
     try {
-      await mpcApi.saveIntake(report.review, vesselId, report.source);
-      setSaved(true);
+      await processReview(settings, report.review, vesselId, report.source);
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : 'Could not save these findings.');
-    } finally {
-      setAction(null);
-      onBusyChange(false);
-    }
-  }
-
-  const partsForDraft = findings?.category === 'DEFECT_REPORT' ? findings.parts.flatMap((part) =>
-    part.partNumber && part.quantity !== null && part.quantity > 0 ? [{
-      partNumber: part.partNumber, partName: part.partName, quantity: part.quantity, notes: part.notes,
-    }] : [],
-  ) : [];
-
-  async function createDrafts() {
-    if (!settings || vesselId === null || !partsForDraft.length || busy || draftCount !== null) return;
-    setAction('draft');
-    onBusyChange(true);
-    setError('');
-    try {
-      const drafts = await mpcApi.generateAiDrafts(settings, vesselId, partsForDraft);
-      setDraftCount(drafts.length);
-      await onDraftsCreated();
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : 'Could not create email drafts.');
+      setError(failure instanceof Error ? failure.message : 'Could not process this document.');
     } finally {
       setAction(null);
       onBusyChange(false);
@@ -138,12 +126,12 @@ export default function AiPdfWorkflow({ settings, vessels, blocked, onBusyChange
           </label>
         </fieldset>
         <button type="submit" className="dashboard-button primary-button" disabled={!settings || !canAnalyze || busy}>
-          {action === 'read' ? 'Analyzing…' : 'Analyze'}
+          {action === 'read' ? 'Analyzing…' : action === 'process' ? 'Processing…' : 'Process intake'}
         </button>
       </form>
       {!settings && <p className="pdf-detail">Add your API key in <a href="#ai-settings">AI settings</a>.</p>}
       {error && <p className="dashboard-error" role="alert">{error}</p>}
-      {findings && (
+      {report && findings && (
         <div className="pdf-result" aria-label="Extracted findings">
           <h3>{INTAKE_CATEGORIES[findings.category]}</h3>
           <p>{findings.summary}</p>
@@ -169,26 +157,28 @@ export default function AiPdfWorkflow({ settings, vessels, blocked, onBusyChange
               ))}
             </ul>
           )}
-          <label className="intake-vessel">Link to vessel
-            <select value={vesselId ?? ''} disabled={busy || saved || draftCount !== null}
+          <label className="intake-vessel">Linked vessel
+            <select value={vesselId ?? ''} disabled={busy || draftCount !== null}
               onChange={(event) => setVesselId(event.target.value ? Number(event.target.value) : null)}>
               <option value="">No linked vessel</option>
               {vessels.map((vessel) => <option key={vessel.id} value={vessel.id}>{vessel.name} · {vessel.imo}</option>)}
             </select>
           </label>
           <div className="pdf-actions">
-            <button type="button" className="dashboard-button primary-button" disabled={busy || saved} onClick={() => void saveFindings()}>
-              {action === 'save' ? 'Saving…' : 'Save findings'}
-            </button>
-            {partsForDraft.length > 0 && draftCount === null && (
-              <button type="button" className="dashboard-button" disabled={!settings || vesselId === null || busy} onClick={() => void createDrafts()}>
-                {action === 'draft' ? 'Creating drafts…' : 'Create email drafts'}
+            {canDraft(report.review) && vesselId === null && (
+              <p className="pdf-detail">Select the vessel to prepare supplier drafts.</p>
+            )}
+            {draftCount === null && !busy && (
+              <button type="button" className="dashboard-button" disabled={!settings || (canDraft(report.review) && vesselId === null)}
+                onClick={() => void retryOrProcessReview()}>
+                {error ? 'Retry processing' : 'Process report'}
               </button>
             )}
-            {saved && <p role="status">Findings saved.</p>}
             {draftCount !== null && (
               <p className="pdf-detail" role="status">
-                {draftCount === 0 ? 'No supplier drafts were created.' : `${draftCount} ${draftCount === 1 ? 'draft' : 'drafts'} awaiting approval.`}
+                {draftCount > 0 ? `${draftCount} ${draftCount === 1 ? 'draft' : 'drafts'} awaiting approval.`
+                  : canDraft(report.review) ? 'Findings saved. No matching suppliers.'
+                    : 'Findings saved. No supplier drafts created.'}
               </p>
             )}
           </div>
