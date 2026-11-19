@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { db } from '../../prisma/db.js';
-import { calculateFaultDamage, type FaultSeverity } from './vessel.service.js';
+import { applyFaultDamage, type FaultSeverity } from './vessel.service.js';
 import { orderService, type ExtractedPartInput, type RepairPort } from './order.service.js';
 import type { AiCredentials } from '../integrations/ai/aiProvider.js';
 
@@ -24,18 +24,7 @@ export const reportService = {
     );
 
     return db.transaction(async (tx) => {
-      const vessel = await tx.orm.Vessel.where((row) => row.id.eq(input.vesselId)).first();
-      if (!vessel) throw new Error(`Vessel with ID ${input.vesselId} not found`);
-
-      const damage = calculateFaultDamage(vessel.health, input.severity, input.extractedParts.length);
-      const updatedVessel = await tx.orm.Vessel
-        .where((row) => row.id.eq(input.vesselId))
-        .update({
-          health: damage.newHealth,
-          operationalStatus:
-            damage.newHealth < 70 ? 'MAINTENANCE_REQUIRED' : vessel.operationalStatus,
-        });
-      if (!updatedVessel) throw new Error(`Vessel with ID ${input.vesselId} not found`);
+      const healthUpdate = await applyFaultDamage(tx.orm.Vessel, input.vesselId, input.severity, input.extractedParts.length);
 
       // Each validated line retains the full requested quantity, including consolidated duplicates.
       const requestedQuantity = input.extractedParts.reduce((sum, part) => sum + part.quantity, 0);
@@ -43,16 +32,16 @@ export const reportService = {
         sum + draft.matchedParts.reduce((count, part) => count + part.quantity, 0), 0);
       const repairFaultId = randomUUID();
       const repairHealthLoss = matchedQuantity === requestedQuantity
-        ? damage.previousHealth - damage.newHealth
+        ? healthUpdate.previousHealth - healthUpdate.newHealth
         : null;
       const draftedOrders = await orderService.persistPreparedDrafts(
         prepared,
         (order) => tx.orm.Order.create({ ...order, repairFaultId, repairHealthLoss }),
-        updatedVessel,
+        healthUpdate.vessel,
       );
 
       return {
-        healthUpdate: { vessel: updatedVessel, ...damage },
+        healthUpdate,
         draftedOrders,
       };
     });

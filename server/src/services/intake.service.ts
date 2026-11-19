@@ -3,9 +3,11 @@ import { db } from '../../prisma/db.js';
 import type { AiCredentials } from '../integrations/ai/aiProvider.js';
 import { readIntakeExtraction, type IntakeExtraction, type ReviewedIntake } from '../integrations/ai/documentReader.js';
 import { orderService, type ExtractedPartInput } from './order.service.js';
+import { applyFaultDamage } from './vessel.service.js';
 
 type IntakeReceipt = { id: string; vesselId: number | null; category: string };
-type ProcessReceipt = IntakeReceipt & { draftCount: number };
+type IntakeHealthUpdate = { previousHealth: number; newHealth: number };
+type ProcessReceipt = IntakeReceipt & { draftCount: number; healthUpdate?: IntakeHealthUpdate };
 type IntakeError = { status: 404 | 409 | 503; body: { error: string } };
 export type IntakeSaveResult = { status: 200 | 201; body: IntakeReceipt } | IntakeError;
 export type IntakeProcessResult = { status: 200 | 201; body: ProcessReceipt } | IntakeError;
@@ -43,13 +45,17 @@ async function previousReview(input: ReviewedIntake): Promise<IntakeProcessResul
 
   if (isJsonObject(row.extraction)) {
     // Earlier manual saves contain just the extraction and created no orders.
-    const { draftCount = 0, hasEmail, repairPort = null, ...extraction } = row.extraction;
+    const { draftCount = 0, hasEmail, repairPort = null, healthUpdate, ...extraction } = row.extraction;
     if (row.vesselId === input.vesselId && row.sender === input.sender && row.subject === input.subject &&
         row.filename === input.filename && row.category === input.extraction.category &&
         (hasEmail === undefined || hasEmail === input.hasEmail) && isDeepStrictEqual(repairPort, input.repairPort ?? null) &&
         typeof draftCount === 'number' && Number.isSafeInteger(draftCount) && draftCount >= 0 &&
         isDeepStrictEqual(extraction, input.extraction)) {
-      return { status: 200, body: { id: row.id, vesselId: row.vesselId, category: row.category, draftCount } };
+      const damage = isJsonObject(healthUpdate) &&
+        typeof healthUpdate.previousHealth === 'number' && typeof healthUpdate.newHealth === 'number'
+        ? { previousHealth: healthUpdate.previousHealth, newHealth: healthUpdate.newHealth } : undefined;
+      return { status: 200, body: { id: row.id, vesselId: row.vesselId, category: row.category, draftCount,
+        ...(damage && { healthUpdate: damage }) } };
     }
   }
   return { status: 409, body: { error: 'This review was already saved with different details.' } };
@@ -68,24 +74,31 @@ async function storeIntake(input: ReviewedIntake, credentials?: AiCredentials): 
       const parts = extraction.parts.flatMap((part): ExtractedPartInput[] =>
         part.partNumber && part.quantity !== null ? [{ ...part, partNumber: part.partNumber, quantity: part.quantity }] : [],
       );
-      if (parts.length) {
-        // Match against the current catalog before taking the SQLite write lock.
-        const prepared = await orderService.prepareDraftsFromReport(vesselId, parts, credentials, input.repairPort);
-        const draftCount = prepared.drafts.length;
-        await db.transaction(async (tx) => {
-          // The intake primary key claims the review before any orders are inserted.
-          await tx.orm.ReaderIntake.create({ ...data, extraction: { ...findings, draftCount } });
+      // Keep the provider call outside the transaction. Faults can still reduce health with no RFQ.
+      const prepared = parts.length
+        ? await orderService.prepareDraftsFromReport(vesselId, parts, credentials, input.repairPort)
+        : null;
+      const draftCount = prepared?.drafts.length ?? 0;
+      const healthUpdate = await db.transaction(async (tx) => {
+        const damage = extraction.reportsActiveFault
+          ? await applyFaultDamage(tx.orm.Vessel, vesselId, extraction.severity ?? 'MEDIUM', parts.length)
+          : null;
+        const update = damage && { previousHealth: damage.previousHealth, newHealth: damage.newHealth };
+        await tx.orm.ReaderIntake.create({
+          ...data, extraction: { ...findings, draftCount, ...(update && { healthUpdate: update }) },
+        });
+        if (prepared) {
           try {
-            // Document intake records no health loss. Group its RFQs for dispatch and measured completion.
             await orderService.persistPreparedDrafts(prepared, (order) =>
-              tx.orm.Order.create({ ...order, repairFaultId: id, repairHealthLoss: null }));
+              tx.orm.Order.create({ ...order, repairFaultId: id, repairHealthLoss: null }), damage?.vessel);
           } catch (error) {
             if (storageFailure(error) === '23503') throw new CatalogChangedError();
             throw error;
           }
-        });
-        return { status: 201, body: { id, vesselId, category, draftCount } };
-      }
+        }
+        return update;
+      });
+      return { status: 201, body: { id, vesselId, category, draftCount, ...(healthUpdate && { healthUpdate }) } };
     }
     await db.orm.ReaderIntake.create(data);
     return { status: 201, body: { id, vesselId, category, draftCount: 0 } };

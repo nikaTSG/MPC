@@ -78,6 +78,23 @@ export function calculateFaultDamage(previousHealth: number, severity: FaultSeve
   return { previousHealth, newHealth, penalty };
 }
 
+type VesselTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0]['orm']['Vessel'];
+
+export async function applyFaultDamage(vessels: VesselTransaction, vesselId: number, severity: FaultSeverity, partCount: number) {
+  const selection = vessels.where((row) => row.id.eq(vesselId));
+  const vessel = await selection.first();
+  if (!vessel) throw new Error(`Vessel with ID ${vesselId} not found`);
+
+  const damage = calculateFaultDamage(vessel.health, severity, partCount);
+  const updatedVessel = await selection.update({
+    health: damage.newHealth,
+    operationalStatus: damage.newHealth < 70 ? 'MAINTENANCE_REQUIRED' : vessel.operationalStatus,
+  });
+  if (!updatedVessel) throw new Error(`Vessel with ID ${vesselId} not found`);
+
+  return { vessel: updatedVessel, ...damage };
+}
+
 export const vesselService = {
   // Fetch all vessels, ordered alphabetically by name
   async getAllVessels() {

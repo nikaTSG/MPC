@@ -23,6 +23,8 @@ times as SUPPLIER_QUOTE, and other documents as OTHER.
 
 Summarize the document. Copy vessel name, seven-digit IMO, severity, part
 numbers, quantities, and notes only when stated. Use null for unknown values.
+Set reportsActiveFault to true only for a reported new or unresolved equipment
+failure. A routine spare request or a completed repair alone is not an active fault.
 Never invent part numbers, prices, quantities, vessel IDs, or dates. Include
 up to 25 distinct parts and 30 label/value facts. Capture reported numbers
 with units or currency, dates, locations, symptoms, quote terms, and lead times.

@@ -42,6 +42,9 @@ class Extraction(BaseModel):
     vesselName: str | None
     imo: str | None = Field(description="The seven-digit IMO explicitly stated in the document.")
     severity: FaultSeverity | None
+    reportsActiveFault: bool = Field(
+        description="True only if the source explicitly reports a new or unresolved equipment failure."
+    )
     summary: str
     parts: list[ExtractedPart]
     facts: list[ExtractedFact]

@@ -54,10 +54,16 @@ export interface IntakeReview {
     vesselName: string | null;
     imo: string | null;
     severity: FaultSeverity | null;
+    reportsActiveFault?: boolean;
     summary: string;
     parts: { partNumber: string | null; partName: string; quantity: number | null; notes: string | null }[];
     facts: { label: string; value: string }[];
   };
+}
+
+export interface IntakeHealthUpdate {
+  previousHealth: number;
+  newHealth: number;
 }
 
 export interface RepairPortSelection {
@@ -265,7 +271,7 @@ export const mpcApi = {
     requestAi<IntakeReview>('intake', settings, source),
 
   processIntake: (settings: AiSettings, review: IntakeReview, vesselId: number | null, repairPort?: RepairPortSelection) =>
-    requestAi<{ id: string; vesselId: number | null; category: string; draftCount: number }>(
+    requestAi<{ id: string; vesselId: number | null; category: string; draftCount: number; healthUpdate?: IntakeHealthUpdate }>(
       'intake/process', settings, { ...review, vesselId, repairPort },
     ),
 

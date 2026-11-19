@@ -674,6 +674,10 @@ export const ShipDashboard: React.FC = () => {
             resolveRepairPort={resolveRepairPort}
             onBusyChange={setPdfBusy}
             onDraftsCreated={refetchOrders}
+            onHealthUpdated={async (vesselId) => {
+              setSelectedVesselId(vesselId);
+              await refetchVessels();
+            }}
             onViewDrafts={() => setActiveTab('procurement')}
           />
         </div>

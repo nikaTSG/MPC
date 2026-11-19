@@ -14,6 +14,7 @@ export type IntakeExtraction = {
   vesselName: string | null;
   imo: string | null;
   severity: FaultSeverity | null;
+  reportsActiveFault?: boolean;
   summary: string;
   parts: {
     partNumber: string | null;
@@ -115,6 +116,7 @@ export function readIntakeExtraction(value: unknown): IntakeExtraction | null {
   if (!isRecord(value) || !isMember(categories, value.category) || !isText(value.summary, 4000)
       || !isNullableText(value.vesselName, 200) || !(value.imo === null || (typeof value.imo === 'string' && /^\d{7}$/.test(value.imo)))
       || !(value.severity === null || isMember(severities, value.severity))
+      || (value.reportsActiveFault !== undefined && typeof value.reportsActiveFault !== 'boolean')
       || !Array.isArray(value.parts) || value.parts.length > 25 || !Array.isArray(value.facts) || value.facts.length > 30) return null;
 
   const parts: IntakeExtraction['parts'] = [];
@@ -130,7 +132,9 @@ export function readIntakeExtraction(value: unknown): IntakeExtraction | null {
     facts.push({ label: fact.label.trim(), value: fact.value.trim() });
   }
   return { category: value.category, summary: value.summary.trim(), vesselName: value.vesselName?.trim() ?? null,
-    imo: value.imo, severity: value.severity, parts, facts };
+    imo: value.imo, severity: value.severity,
+    ...(value.reportsActiveFault !== undefined && { reportsActiveFault: value.reportsActiveFault }),
+    parts, facts };
 }
 
 // A restart invalidates outstanding reviews. No document or provider key is retained here.
