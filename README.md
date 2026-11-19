@@ -37,7 +37,19 @@ geia sou peter
 - **Route map** estimates arrival from MPC’s route and the vessel’s stored speed. Demo berth windows run from 08:00 to 18:00 UTC, and the panel shows the estimated wait in hours and minutes. Confirm real availability with the port.
 - **Worldwide ports** toggles the keyless [UN OCHA copy of the World Port Index](https://gis.unocha.org/server/rest/services/Hosted/global_world_seaport_index_202511/FeatureServer). The selected destination’s marine forecast comes from [Open-Meteo Marine](https://open-meteo.com/en/docs/marine-weather-api).
 - **Repair ports** appear when you click a damaged vessel on the map. MPC compares its dimensions with World Port Index limits for repair ports within 500 nautical miles. Confirm safe access, repair capability, and berth availability with the port. [World Port Index specifications](https://arcgis.netl.doe.gov/server/rest/services/Hosted/CCS_EJ_SJ_Data/FeatureServer/17)
-- **Intake** accepts pasted email text or an uploaded PDF. **Process intake** uses the selected AI provider and stores the findings through the TypeScript API. When it can link a defect report to a vessel and match parts to suppliers, it creates email drafts for approval in Procurement. The dashboard chat can refer to processed documents by the time MPC saved them.
+- **Intake** accepts pasted email text or an uploaded PDF. The Python reader uses the provider, model, and key selected in AI settings. The TypeScript API stores the findings and prepares supplier drafts when it can match the vessel and parts. Chat can answer from the saved findings of recent documents.
 - **Demo fleet** adds two fictional vessels to each of the container, tanker, and general cargo categories. An ignored `server/prisma/dev.db.local` copy takes precedence over the checked-in `dev.db` in local development when the default database is configured. With the API running against the intended demo database, run `./node_modules/.bin/tsx scripts/seedDemoVessels.ts` from `server/`. The script calls the local vessels API, skips records it already added, and accepts an optional port argument (default 3001).
 
 Saving intake on an existing installation requires the additive `ReaderIntake` table. From `server/`, preview the change to the local demo copy with `DATABASE_URL=file:./prisma/dev.db.local ./node_modules/.bin/prisma db update --dry-run`. Use the same explicit database URL when applying and verifying the reviewed update.
+
+### Python reader setup
+
+With Python 3.10 or later, run these commands from the repository root. Enter the provider API key in the dashboard’s AI settings.
+
+```sh
+python3 -m venv server/.venv.local
+server/.venv.local/bin/python -m pip install -r server/src/integrations/ai/requirements.txt
+npm --prefix client run dev
+```
+
+The API launches the reader from the ignored virtual environment when Intake needs it. Use `MPC_READER_PYTHON` to point to another Python interpreter. The standalone FastAPI endpoints accept a provider and model with an `Authorization: Bearer` header. The compatibility routes `/api/v1/reports` and `/api/v1/orders/generate` redirect to the same credentialed AI endpoints used by the dashboard.

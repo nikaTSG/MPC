@@ -105,9 +105,9 @@ const DRAFTS_SCHEMA = {
 
 export async function draftSupplierEmails(
   input: DraftEmailsInput,
-  credentials?: AiCredentials,
+  credentials: AiCredentials,
 ): Promise<AgentProcurementResponse> {
-  const extractedParts = credentials ? sanitizeExtractedParts(input.extractedParts) : input.extractedParts;
+  const extractedParts = sanitizeExtractedParts(input.extractedParts);
 
   // Strip sensitive/unnecessary fields (like supplier emails) before sending to the LLM
   const sanitizedPayload = {
@@ -126,64 +126,23 @@ export async function draftSupplierEmails(
     })),
   };
 
-  let rawContent: string | null = null;
-  if (credentials) {
-    rawContent = await requestAiText(credentials, {
-      instructions: SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: JSON.stringify(sanitizedPayload) }],
-      jsonSchema: { name: 'supplier_email_drafts', schema: DRAFTS_SCHEMA },
-      maxOutputTokens: 4000,
-    });
-  } else {
-    // Retain the existing environment-backed integration for legacy API callers.
-    const baseUrl = (process.env.AI_BASE_URL || 'http://localhost:11434/v1').replace(/\/$/, '');
-    const apiKey = process.env.AI_API_KEY || 'ollama';
-    const model = process.env.AI_MODEL || 'llama3.2';
-    const response = await fetch(`${baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model,
-        temperature: 0.2,
-        response_format: { type: 'json_object' },
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: JSON.stringify(sanitizedPayload) },
-        ],
-      }),
-    });
-
-    if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`AI provider error (${response.status}): ${errText}`);
-    }
-
-    const data = (await response.json()) as {
-      choices?: { message?: { content?: string } }[];
-    };
-    rawContent = data.choices?.[0]?.message?.content ?? null;
-  }
+  const rawContent = await requestAiText(credentials, {
+    instructions: SYSTEM_PROMPT,
+    messages: [{ role: 'user', content: JSON.stringify(sanitizedPayload) }],
+    jsonSchema: { name: 'supplier_email_drafts', schema: DRAFTS_SCHEMA },
+    maxOutputTokens: 4000,
+  });
 
   if (!rawContent) {
     throw new Error('AI provider returned an empty response');
   }
 
-  // Clean accidental ```json fences if a local model adds them
+  // Clean accidental ```json fences before validation
   const cleanedJson = rawContent.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
   const parsed: unknown = JSON.parse(cleanedJson);
 
   if (!isRecord(parsed) || !Array.isArray(parsed.drafts)) {
     throw new Error('AI response missing "drafts" array');
-  }
-
-  if (!credentials) {
-    // Preserve the legacy integration's supplier-ID filtering for non-UI callers.
-    const validSupplierIds = new Set(input.suppliers.map((supplier) => supplier.id));
-    const drafts = parsed.drafts as AgentProcurementResponse['drafts'];
-    return { drafts: drafts.filter((draft) => validSupplierIds.has(Number(draft.supplierId))) };
   }
 
   return { drafts: validateDrafts(parsed.drafts, { ...input, extractedParts }) };

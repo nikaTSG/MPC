@@ -23,7 +23,7 @@ type OrderCreateInput = {
 async function prepareSupplierDrafts(
   vesselId: number,
   extractedParts: ExtractedPartInput[],
-  credentials?: AiCredentials,
+  credentials: AiCredentials,
 ) {
   const vessel = await db.orm.Vessel.where((v) => v.id.eq(vesselId)).first();
   if (!vessel) {
@@ -77,7 +77,7 @@ export const orderService = {
   async generateDraftsFromReport(
     vesselId: number,
     extractedParts: ExtractedPartInput[],
-    credentials?: AiCredentials,
+    credentials: AiCredentials,
   ) {
     const prepared = await prepareSupplierDrafts(vesselId, extractedParts, credentials);
     return db.transaction((tx) =>

@@ -1,5 +1,5 @@
 import { db } from '../../prisma/db.js';
-import { calculateFaultDamage, vesselService, type FaultSeverity } from './vessel.service.js';
+import { calculateFaultDamage, type FaultSeverity } from './vessel.service.js';
 import { orderService, type ExtractedPartInput } from './order.service.js';
 import type { AiCredentials } from '../integrations/ai/aiProvider.js';
 
@@ -11,22 +11,7 @@ export interface IncomingFaultReport {
 }
 
 export const reportService = {
-  async processFaultReport(input: IncomingFaultReport, credentials?: AiCredentials) {
-    if (!credentials) {
-      // Preserve the legacy API's established health-first behavior.
-      const healthUpdate = await vesselService.applyFaultDamage(
-        input.vesselId,
-        input.severity,
-        input.extractedParts.length,
-      );
-      const draftedOrders = await orderService.generateDraftsFromReport(
-        input.vesselId,
-        input.extractedParts,
-      );
-
-      return { healthUpdate, draftedOrders };
-    }
-
+  async processFaultReport(input: IncomingFaultReport, credentials: AiCredentials) {
     // Resolve the model output before opening a write transaction. A rejected
     // key or failed provider request therefore changes no database state.
     const prepared = await orderService.prepareDraftsFromReport(

@@ -1,7 +1,7 @@
 import { isDeepStrictEqual } from 'node:util';
 import { db } from '../../prisma/db.js';
 import type { AiCredentials } from '../integrations/ai/aiProvider.js';
-import type { ReviewedIntake } from '../integrations/ai/documentReader.js';
+import { readIntakeExtraction, type IntakeExtraction, type ReviewedIntake } from '../integrations/ai/documentReader.js';
 import { orderService, type ExtractedPartInput } from './order.service.js';
 
 type IntakeReceipt = { id: string; vesselId: number | null; category: string };
@@ -9,7 +9,13 @@ type ProcessReceipt = IntakeReceipt & { draftCount: number };
 type IntakeError = { status: 404 | 409 | 503; body: { error: string } };
 export type IntakeSaveResult = { status: 200 | 201; body: IntakeReceipt } | IntakeError;
 export type IntakeProcessResult = { status: 200 | 201; body: ProcessReceipt } | IntakeError;
-type RecentIntake = IntakeReceipt & { subject: string | null; filename: string | null; createdAt: string };
+type RecentIntake = IntakeReceipt & {
+  subject: string | null;
+  filename: string | null;
+  createdAt: string;
+  extraction?: IntakeExtraction | null;
+  extractionLimited?: boolean;
+};
 export type RecentIntakeResult =
   | { status: 200; body: { records: RecentIntake[]; latestEmail: RecentIntake | null } }
   | { status: 503; body: { error: string } };
@@ -112,10 +118,32 @@ export async function saveReviewedIntake(input: ReviewedIntake): Promise<IntakeS
   return { status: result.status, body: { id, vesselId, category } };
 }
 
-export async function recentReviewedIntakes(): Promise<RecentIntakeResult> {
+function fitExtraction(extraction: IntakeExtraction | null) {
+  if (!extraction || JSON.stringify(extraction).length <= 2_000) return { extraction };
+  function fitItems<T>(items: T[]) {
+    const included: T[] = [];
+    let remaining = 650;
+    for (const item of items) {
+      const size = JSON.stringify(item).length + 1;
+      if (size > remaining) continue;
+      included.push(item);
+      remaining -= size;
+    }
+    return included;
+  }
+  return {
+    extraction: {
+      ...extraction, summary: extraction.summary.slice(0, 500),
+      facts: fitItems(extraction.facts), parts: fitItems(extraction.parts),
+    },
+    extractionLimited: true,
+  };
+}
+
+export async function recentReviewedIntakes(includeExtraction = false): Promise<RecentIntakeResult> {
   try {
     const { records, latestEmail } = await db.transaction(async (tx) => {
-      const summaries = tx.orm.ReaderIntake.select('id', 'vesselId', 'category', 'subject', 'filename', 'createdAt')
+      const summaries = tx.orm.ReaderIntake.select('id', 'vesselId', 'category', 'subject', 'filename', 'createdAt', 'extraction')
         .orderBy([(item) => item.createdAt.desc(), (item) => item.id.desc()]);
       const records = await summaries.limit(5).all();
       // Older reviews have no source-kind column. Email headers or a plain text submission
@@ -125,7 +153,10 @@ export async function recentReviewedIntakes(): Promise<RecentIntakeResult> {
       )).first();
       return { records, latestEmail };
     });
-    const serialize = (row: typeof records[number]): RecentIntake => ({ ...row, createdAt: row.createdAt.toISOString() });
+    const serialize = ({ extraction, createdAt, ...metadata }: typeof records[number]): RecentIntake => ({
+      ...metadata, createdAt: createdAt.toISOString(),
+      ...(includeExtraction ? fitExtraction(readIntakeExtraction(extraction)) : {}),
+    });
     return { status: 200, body: { records: records.map(serialize), latestEmail: latestEmail ? serialize(latestEmail) : null } };
   } catch (error) {
     if (storageFailure(error) === 'missingTable') return storageUnavailable;

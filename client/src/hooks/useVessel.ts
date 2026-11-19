@@ -25,7 +25,7 @@ export function useVessels() {
   }, [fetchVessels]);
 
   // Trigger a fault report and immediately sync the ship's new health on the map
-  const reportVesselFault = async (payload: FaultReportPayload, settings?: AiSettings) => {
+  const reportVesselFault = async (payload: FaultReportPayload, settings: AiSettings) => {
     const result = await mpcApi.submitFaultReport(payload, settings);
 
     setVessels((prev) =>

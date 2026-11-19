@@ -13,7 +13,7 @@ import type { IncomingFaultReport } from '../services/report.service.js';
 import type { FaultSeverity } from '../services/vessel.service.js';
 import {
   groundTextIdentifiers,
-  makeIntakeRequest,
+  readDocumentWithPython,
   readIntakeExtraction,
   readIntakeSource,
   type ReviewedIntake,
@@ -54,7 +54,7 @@ const PDF_INSTRUCTIONS = `Extract only maintenance facts and spare parts clearly
 export interface AiRouteDependencies {
   saveReviewedIntake(input: ReviewedIntake): Promise<IntakeSaveResult>;
   processReviewedIntake(input: ReviewedIntake, credentials: AiCredentials): Promise<IntakeProcessResult>;
-  recentReviewedIntakes(): Promise<RecentIntakeResult>;
+  recentReviewedIntakes(includeExtraction?: boolean): Promise<RecentIntakeResult>;
   requestAiText(credentials: AiCredentials, input: AiRequest): Promise<string>;
   streamAiText?(
     credentials: AiCredentials,
@@ -194,13 +194,13 @@ function readChatMessages(value: unknown): AiMessage[] | null {
   return messages;
 }
 
-function serializeDashboardContext(value: unknown): string | null {
+function readDashboardContext(value: unknown): Record<string, unknown> | null {
   if (!isRecord(value)) return null;
 
   try {
     const serialized = JSON.stringify(value);
     return typeof serialized === 'string' && serialized.length <= MAX_DASHBOARD_CONTEXT_JSON_CHARS
-      ? serialized
+      ? value
       : null;
   } catch {
     return null;
@@ -426,11 +426,28 @@ export function createAiRouter(dependencies: AiRouteDependencies) {
     if (!messages) return response.status(400).json({ error: 'messages must contain one to seven alternating user and assistant messages, starting and ending with user' });
 
     const hasDashboardContext = Object.prototype.hasOwnProperty.call(body, 'dashboardContext');
-    const dashboardContextJson = hasDashboardContext
-      ? serializeDashboardContext(body.dashboardContext)
+    const dashboardContext = hasDashboardContext
+      ? readDashboardContext(body.dashboardContext)
       : null;
-    if (hasDashboardContext && dashboardContextJson === null) {
+    if (hasDashboardContext && dashboardContext === null) {
       return response.status(400).json({ error: 'dashboardContext must be a JSON object no larger than 16000 characters' });
+    }
+
+    let dashboardContextJson: string | null = null;
+    if (dashboardContext) {
+      const recent = await dependencies.recentReviewedIntakes(true).catch(() => null);
+      const ready = recent?.status === 200 ? recent.body : null;
+      const entries = ready?.records ?? [];
+      const latestEmail = ready?.latestEmail;
+      dashboardContextJson = JSON.stringify({
+        ...dashboardContext,
+        processedDocuments: {
+          source: 'Intake connector. Up to five recent saved documents and the latest processed email. Use their saved extractions. createdAt is when MPC saved the document. extractionLimited marks omitted details.',
+          status: ready ? 'ready' : 'unavailable',
+          latestProcessedEmailId: latestEmail?.id ?? null,
+          entries: latestEmail && !entries.some(({ id }) => id === latestEmail.id) ? [...entries, latestEmail] : entries,
+        },
+      });
     }
 
     const chatMessages = dashboardContextJson === null
@@ -481,9 +498,9 @@ export function createAiRouter(dependencies: AiRouteDependencies) {
       return response.status(400).json({ error: 'Enter a subject or email body, or attach a PDF.' });
     }
     try {
-      const raw = await dependencies.requestAiText(credentials, makeIntakeRequest(source, message, attachment?.pdf));
-      const extraction = readIntakeExtraction(parseJsonObject(raw));
-      if (!extraction) return response.status(502).json({ error: 'AI provider returned an invalid document analysis.' });
+      const result = await readDocumentWithPython(credentials, source, message, attachment?.pdf);
+      if ('error' in result) return response.status(result.status).json({ error: result.error });
+      const { extraction } = result;
       const reviewedSource = [source.subject, source.sender, message].filter(Boolean).join('\n');
       return response.json({
         intakeId: randomUUID(),

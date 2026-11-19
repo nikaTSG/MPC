@@ -292,13 +292,8 @@ export const mpcApi = {
     return result.data;
   },
 
-  submitFaultReport: (payload: FaultReportPayload, settings?: AiSettings) =>
-    settings
-      ? requestAi<FaultReportResult>('report', settings, payload)
-      : request<FaultReportResult>('/api/v1/reports', {
-          method: 'POST',
-          body: JSON.stringify(payload),
-        }),
+  submitFaultReport: (payload: FaultReportPayload, settings: AiSettings) =>
+    requestAi<FaultReportResult>('report', settings, payload),
 
   getOrders: async (status: string): Promise<OrderDraft[]> => {
     const raw = await request<unknown>(`/api/v1/orders?status=${encodeURIComponent(status)}`);

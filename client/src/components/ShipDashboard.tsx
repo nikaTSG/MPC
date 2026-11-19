@@ -10,7 +10,7 @@ import { useVessels } from '../hooks/useVessel';
 import { useOrders } from '../hooks/useOrder';
 import { usePortWeather } from '../hooks/usePortWeather';
 import { DEMO_BERTH_HOURS, estimatePortCall } from '../utils/portCalls';
-import { mpcApi, VESSEL_CATEGORIES, type AiSettings, type OrderDraft, type ProcessedIntake, type Vessel } from '../api/mpcApi';
+import { VESSEL_CATEGORIES, type AiSettings, type OrderDraft, type Vessel } from '../api/mpcApi';
 
 type SectionId = 'stern' | 'midship' | 'bow';
 const DASHBOARD_VIEWS = [
@@ -199,9 +199,6 @@ export const ShipDashboard: React.FC = () => {
   const [chatRevision, setChatRevision] = useState(0);
   const [chatBusy, setChatBusy] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
-  const [processedIntakes, setProcessedIntakes] = useState<{
-    status: 'loading' | 'ready' | 'unavailable'; records: ProcessedIntake[]; latestEmail: ProcessedIntake | null;
-  }>({ status: 'loading', records: [], latestEmail: null });
   const [now, setNow] = useState(Date.now);
   const views = useRef<HTMLDivElement>(null);
 
@@ -209,19 +206,6 @@ export const ShipDashboard: React.FC = () => {
     const interval = window.setInterval(() => setNow(Date.now()), 60_000);
     return () => window.clearInterval(interval);
   }, []);
-
-  useEffect(() => {
-    if (activeTab !== 'diagnostics') return;
-    const controller = new AbortController();
-    mpcApi.getRecentIntakes(controller.signal)
-      .then(({ records, latestEmail }) => {
-        if (!controller.signal.aborted) setProcessedIntakes({ status: 'ready', records, latestEmail });
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) setProcessedIntakes({ status: 'unavailable', records: [], latestEmail: null });
-      });
-    return () => controller.abort();
-  }, [activeTab]);
 
   useEffect(() => {
     if (!selectedVessel && vessels.length > 0) {
@@ -281,12 +265,6 @@ export const ShipDashboard: React.FC = () => {
       source: 'Orders connector via useOrders, pending approval',
       status: ordersError ? 'unavailable' : ordersLoading ? 'loading' : 'ready',
       ...boundedRecords(orders, summarizeOrder, 3_500),
-    },
-    processedDocuments: {
-      source: 'Intake connector, newest saved first. createdAt is when MPC saved the document.',
-      status: processedIntakes.status,
-      latestProcessedEmail: processedIntakes.latestEmail,
-      ...boundedRecords(processedIntakes.records, (record) => record, 1_000),
     },
     portCallProvenance: {
       eta: 'MPC remaining route distance divided by current stored speed. Position timestamp unavailable.',

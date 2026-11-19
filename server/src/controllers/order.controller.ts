@@ -9,24 +9,8 @@ function parseId(raw: string | string[] | undefined): number | null {
 }
 
 export const orderController = {
-  async generateDrafts(req: Request, res: Response) {
-    try {
-      const vesselId = Number(req.body.vesselId);
-      const { extractedParts } = req.body;
-
-      if (!Number.isInteger(vesselId) || vesselId <= 0) {
-        return res.status(400).json({ error: 'Valid numeric vesselId is required' });
-      }
-      if (!Array.isArray(extractedParts) || extractedParts.length === 0) {
-        return res.status(400).json({ error: 'Non-empty extractedParts array is required' });
-      }
-
-      const drafts = await orderService.generateDraftsFromReport(vesselId, extractedParts);
-      return res.status(201).json(drafts);
-    } catch (error) {
-      console.error('Failed to generate order drafts:', error);
-      return res.status(500).json({ error: 'Failed to generate supplier drafts' });
-    }
+  generateDrafts(_req: Request, res: Response) {
+    return res.redirect(307, '/api/v1/ai/drafts');
   },
 
   async listOrders(req: Request, res: Response) {
