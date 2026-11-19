@@ -7,14 +7,18 @@
   --text: #e5edf6;
   --muted: #a1b2c5;
   --accent: #38bdf8;
+  --radius-panel: 18px;
+  --radius-card: 14px;
+  --radius-control: 12px;
+  --radius-pill: 999px;
   --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
-  align-items: start;
-  gap: 16px;
-  min-height: 100vh;
-  padding: clamp(12px, 2vw, 32px);
+  align-items: stretch;
+  gap: 12px;
+  min-height: 100dvh;
+  padding: clamp(8px, 1vw, 16px);
   background: var(--canvas);
   color: var(--text);
   color-scheme: dark;
@@ -42,9 +46,12 @@
   min-width: 0;
   background: var(--panel);
   border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
 }
 
 .dashboard-main {
+  display: flex;
+  flex-direction: column;
   border-top-color: #277c9e;
 }
 
@@ -98,12 +105,17 @@
   color: var(--text);
   background: var(--inset);
   border: 1px solid var(--line);
-  border-radius: 0;
+  border-radius: var(--radius-control);
   padding: 8px 12px;
 }
 
 .dashboard select {
   width: min(44vw, 20rem);
+  appearance: none;
+  padding-inline-end: 30px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='m1 1 5 5 5-5' fill='none' stroke='%23a1b2c5' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
   text-overflow: ellipsis;
 }
 
@@ -125,6 +137,8 @@
 .dashboard-button {
   color: var(--text);
   font-weight: 600;
+  border-radius: var(--radius-pill);
+  padding-inline: 16px;
 }
 
 .dashboard button:not(:disabled):hover {
@@ -138,7 +152,15 @@
 }
 
 .dashboard-button.fault-button {
+  min-height: 36px;
+  border-color: #715126;
+  background: #251f17;
   color: #f9c86b;
+}
+
+.dashboard-button.fault-button:not(:disabled):hover {
+  border-color: #a97537;
+  background: #342718;
 }
 
 .dashboard-views {
@@ -159,6 +181,7 @@
   padding: 8px 12px;
   border: 0;
   border-bottom: 2px solid transparent;
+  border-radius: var(--radius-control) var(--radius-control) 0 0;
   background: transparent;
   color: var(--muted);
   font-weight: 600;
@@ -188,6 +211,7 @@
 .view-count {
   font: 12px/1 var(--mono);
   border: 1px solid #36556e;
+  border-radius: var(--radius-pill);
   padding: 3px 5px;
 }
 
@@ -200,6 +224,165 @@
 
 .dashboard-content[hidden] {
   display: none;
+}
+
+.diagnostics-workspace {
+  flex: 1;
+  grid-template-rows: auto minmax(min-content, 1fr) auto;
+}
+
+.map-workspace {
+  flex: 1;
+}
+
+.port-call {
+  display: grid;
+  gap: 8px;
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--inset);
+}
+
+.port-call-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.port-call-heading h2 {
+  font-size: 16px;
+}
+
+.port-call-heading p, .port-call-note, .port-layer-control small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.port-layer-control {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.port-layer-control button[aria-pressed="true"] {
+  color: var(--accent);
+  border-color: #277c9e;
+}
+
+.port-call a {
+  color: var(--accent);
+}
+
+.port-call-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+  gap: 6px 16px;
+}
+
+.port-call-metrics dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.port-call-metrics dd {
+  font: 13px/1.5 var(--mono);
+}
+
+.vessel-dialog {
+  width: min(540px, calc(100% - 24px));
+  max-height: calc(100dvh - 24px);
+  padding: clamp(16px, 3vw, 24px);
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+}
+
+.vessel-dialog::backdrop {
+  background: rgb(4 8 15 / 75%);
+}
+
+.vessel-dialog h2 {
+  font-size: 20px;
+  margin-bottom: 12px;
+}
+
+.vessel-dialog form, .vessel-form-fields {
+  display: grid;
+  gap: 12px;
+}
+
+.vessel-form-fields {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.vessel-form-fields label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.vessel-form-fields :is(input, select, textarea) {
+  min-width: 0;
+  width: 100%;
+}
+
+.vessel-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ship-blueprint {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--inset);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+}
+
+.blueprint-specs,
+.blueprint-specs > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+}
+
+.blueprint-specs {
+  justify-content: space-between;
+  color: var(--muted);
+  font: 11px/1.4 var(--mono);
+  padding-inline: 4px;
+}
+
+.ship-blueprint > svg {
+  display: block;
+  flex: 1;
+  min-height: clamp(105px, 23vw, 305px);
+  width: 100%;
+  height: 0;
+  font-family: var(--mono);
+}
+
+.blueprint-zone {
+  cursor: pointer;
+}
+
+.blueprint-zone:hover > rect {
+  fill: #58bbeb;
+  fill-opacity: 0.16;
 }
 
 .hull-sections {
@@ -219,7 +402,7 @@
   color: var(--text);
   background: var(--inset);
   border: 1px solid var(--line);
-  border-radius: 0;
+  border-radius: var(--radius-control);
   text-align: left;
 }
 
@@ -280,6 +463,10 @@
   gap: 12px;
 }
 
+.dashboard-sidebar {
+  align-content: start;
+}
+
 .order-card,
 .sidebar-panel {
   padding: 16px;
@@ -289,6 +476,7 @@
   display: grid;
   gap: 12px;
   border: 1px solid var(--line);
+  border-radius: var(--radius-card);
   background: var(--inset);
 }
 
@@ -384,7 +572,7 @@
   width: 100%;
   padding: 10px 12px;
   border: 1px solid var(--line);
-  border-radius: 0;
+  border-radius: var(--radius-control);
   color: var(--text);
   background: var(--inset);
   text-align: left;
@@ -415,10 +603,11 @@
   flex-direction: column;
   align-items: flex-start;
   gap: 8px;
-  height: clamp(280px, 48svh, 520px);
+  height: clamp(280px, calc(100dvh - 310px), 1200px);
   min-height: 0;
   overflow: auto;
   border: 1px solid var(--line);
+  border-radius: var(--radius-card);
   background: var(--inset);
   padding: clamp(12px, 2vw, 20px);
 }
@@ -456,6 +645,7 @@
   flex: none;
   padding: 8px 12px;
   border-left: 2px solid var(--line);
+  border-radius: 4px var(--radius-card) var(--radius-card) var(--radius-card);
   background: var(--panel);
   overflow-wrap: anywhere;
   width: fit-content;
@@ -469,6 +659,7 @@
 .chat-message[data-sender="user"] {
   align-self: flex-end;
   background: var(--raised);
+  border-radius: var(--radius-card) 4px var(--radius-card) var(--radius-card);
 }
 
 .chat-message-text {
@@ -563,32 +754,52 @@
   padding-bottom: 0;
 }
 
-.pdf-upload {
+.intake-form {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
-  gap: 4px 8px;
+  gap: 12px;
 }
 
-.pdf-upload label {
+.intake-form .dashboard-button {
+  justify-self: start;
+}
+
+.intake-wide {
   grid-column: 1 / -1;
+}
+
+.intake-wide textarea {
+  resize: vertical;
+}
+
+.intake-form input::file-selector-button {
+  margin-right: 6px;
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+}
+
+.intake-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 8px 16px;
+}
+
+.intake-facts dt, .intake-vessel {
   color: var(--muted);
   font-size: 13px;
 }
 
-.pdf-upload input {
-  min-width: 0;
-  width: 100%;
+.intake-vessel {
+  display: grid;
+  gap: 4px;
+  justify-items: start;
 }
 
-.pdf-upload input::file-selector-button {
-  margin-right: 6px;
-  padding: 2px 6px;
-  border: 1px solid var(--line);
-  border-radius: 0;
-  background: var(--panel);
-  color: var(--text);
-  font: inherit;
+.intake-vessel select {
+  width: min(100%, 30rem);
 }
 
 .pdf-result {
@@ -620,6 +831,7 @@
 .dashboard-error {
   padding: 12px 16px;
   border-left: 2px solid var(--line);
+  border-radius: 4px var(--radius-card) var(--radius-card) 4px;
   background: var(--inset);
 }
 
@@ -642,6 +854,11 @@
 @media (max-width: 900px) {
   .dashboard {
     grid-template-columns: minmax(0, 1fr);
+    align-content: start;
+  }
+
+  .dashboard-main {
+    min-height: calc(100dvh - 16px);
   }
 }
 
@@ -661,6 +878,10 @@
 }
 
 @media (max-width: 420px) {
+  .vessel-form-fields {
+    grid-template-columns: 1fr;
+  }
+
   .dashboard-views {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));

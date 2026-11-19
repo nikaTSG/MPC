@@ -19,7 +19,7 @@ import type {
 } from '@prisma/orm-sqlite/contract/types';
 
 export type StorageHash =
-  StorageHashBase<'0060784fda069892b7100fcf6b90f1e1bee95d3a85bf010d7db2358f75b9a9b4'>;
+  StorageHashBase<'595aeea3d2dc4d1f00a693168d859a992943af2cf1af991dc96183c34bf9ee5d'>;
 export type ExecutionHash =
   ExecutionHashBase<'765c42be0aa86af3e62d4e5ca8ab7a4fd841eddc9948fd4e2655ec8d19017d99'>;
 export type ProfileHash =
@@ -233,6 +233,18 @@ export namespace Models {
     vessel: Vessel;
     readonly [RelationKeys]?: 'supplier' | 'vessel';
   };
+  export type ReaderIntake = {
+    category: FieldOutputTypes['__unbound__']['ReaderIntake']['category'];
+    createdAt: FieldOutputTypes['__unbound__']['ReaderIntake']['createdAt'];
+    extraction: FieldOutputTypes['__unbound__']['ReaderIntake']['extraction'];
+    filename: FieldOutputTypes['__unbound__']['ReaderIntake']['filename'];
+    id: FieldOutputTypes['__unbound__']['ReaderIntake']['id'];
+    sender: FieldOutputTypes['__unbound__']['ReaderIntake']['sender'];
+    subject: FieldOutputTypes['__unbound__']['ReaderIntake']['subject'];
+    vesselId: FieldOutputTypes['__unbound__']['ReaderIntake']['vesselId'];
+    vessel: Vessel | null;
+    readonly [RelationKeys]?: 'vessel';
+  };
   export type Supplier = {
     createdAt: FieldOutputTypes['__unbound__']['Supplier']['createdAt'];
     email: FieldOutputTypes['__unbound__']['Supplier']['email'];
@@ -278,6 +290,7 @@ export namespace Models {
 
 export declare const models: {
   Order: Models.Order;
+  ReaderIntake: Models.ReaderIntake;
   Supplier: Models.Supplier;
   Vessel: Models.Vessel;
 };
@@ -426,6 +439,83 @@ type ContractBase = Omit<
                   readonly target: {
                     readonly namespaceId: '__unbound__' & NamespaceId;
                     readonly tableName: 'Supplier';
+                    readonly columns: readonly ['id'];
+                  };
+                },
+              ];
+            };
+            readonly ReaderIntake: {
+              columns: {
+                readonly category: {
+                  readonly dataType: 'sqlite/text';
+                  readonly codecId: 'sqlite/text@1';
+                  readonly nullable: false;
+                  readonly many: false;
+                };
+                readonly createdAt: {
+                  readonly dataType: 'sqlite/datetime';
+                  readonly codecId: 'sqlite/datetime@1';
+                  readonly nullable: false;
+                  readonly default: { readonly kind: 'function'; readonly expression: 'now()' };
+                  readonly many: false;
+                };
+                readonly extraction: {
+                  readonly dataType: 'sqlite/json';
+                  readonly codecId: 'sqlite/json@1';
+                  readonly nullable: false;
+                  readonly many: false;
+                };
+                readonly filename: {
+                  readonly dataType: 'sqlite/text';
+                  readonly codecId: 'sqlite/text@1';
+                  readonly nullable: true;
+                  readonly many: false;
+                };
+                readonly id: {
+                  readonly dataType: 'sqlite/text';
+                  readonly codecId: 'sqlite/text@1';
+                  readonly nullable: false;
+                  readonly many: false;
+                };
+                readonly sender: {
+                  readonly dataType: 'sqlite/text';
+                  readonly codecId: 'sqlite/text@1';
+                  readonly nullable: true;
+                  readonly many: false;
+                };
+                readonly subject: {
+                  readonly dataType: 'sqlite/text';
+                  readonly codecId: 'sqlite/text@1';
+                  readonly nullable: true;
+                  readonly many: false;
+                };
+                readonly vesselId: {
+                  readonly dataType: 'sqlite/integer';
+                  readonly codecId: 'sqlite/integer@1';
+                  readonly nullable: true;
+                  readonly many: false;
+                };
+              };
+              primaryKey: { readonly columns: readonly ['id'] };
+              uniques: readonly [];
+              indexes: readonly [
+                {
+                  readonly name: 'ReaderIntake_vesselId_idx_90e6d4c8';
+                  readonly prefix: 'ReaderIntake_vesselId_idx';
+                  readonly columns: readonly ['vesselId'];
+                  readonly unique: false;
+                },
+              ];
+              foreignKeys: readonly [
+                {
+                  readonly source: {
+                    readonly namespaceId: '__unbound__' & NamespaceId;
+                    readonly tableName: 'ReaderIntake';
+                    readonly columns: readonly ['vesselId'];
+                  };
+                  readonly target: {
+                    readonly namespaceId: '__unbound__' & NamespaceId;
+                    readonly tableName: 'Vessel';
                     readonly columns: readonly ['id'];
                   };
                 },
@@ -704,6 +794,10 @@ type ContractBase = Omit<
   readonly targetFamily: 'sql';
   readonly roots: {
     readonly Order: { readonly namespace: '__unbound__' & NamespaceId; readonly model: 'Order' };
+    readonly ReaderIntake: {
+      readonly namespace: '__unbound__' & NamespaceId;
+      readonly model: 'ReaderIntake';
+    };
     readonly Supplier: {
       readonly namespace: '__unbound__' & NamespaceId;
       readonly model: 'Supplier';
@@ -806,6 +900,70 @@ type ContractBase = Omit<
                 readonly supplierId: { readonly column: 'supplierId' };
                 readonly updatedAt: { readonly column: 'updatedAt' };
                 readonly urgency: { readonly column: 'urgency' };
+                readonly vesselId: { readonly column: 'vesselId' };
+              };
+            };
+          };
+          readonly ReaderIntake: {
+            readonly fields: {
+              readonly category: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'sqlite/text@1' };
+              };
+              readonly createdAt: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'sqlite/datetime@1' };
+              };
+              readonly extraction: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'sqlite/json@1' };
+              };
+              readonly filename: {
+                readonly nullable: true;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'sqlite/text@1' };
+              };
+              readonly id: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'sqlite/text@1' };
+              };
+              readonly sender: {
+                readonly nullable: true;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'sqlite/text@1' };
+              };
+              readonly subject: {
+                readonly nullable: true;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'sqlite/text@1' };
+              };
+              readonly vesselId: {
+                readonly nullable: true;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'sqlite/integer@1' };
+              };
+            };
+            readonly relations: {
+              readonly vessel: {
+                readonly to: {
+                  readonly namespace: '__unbound__' & NamespaceId;
+                  readonly model: 'Vessel';
+                };
+                readonly cardinality: 'N:1';
+                readonly nullable: true;
+                readonly on: {
+                  readonly localFields: readonly ['vesselId'];
+                  readonly targetFields: readonly ['id'];
+                };
+              };
+            };
+            readonly storage: {
+              readonly table: 'ReaderIntake';
+              readonly namespaceId: '__unbound__';
+              readonly fields: {
+                readonly category: { readonly column: 'category' };
+                readonly createdAt: { readonly column: 'createdAt' };
+                readonly extraction: { readonly column: 'extraction' };
+                readonly filename: { readonly column: 'filename' };
+                readonly id: { readonly column: 'id' };
+                readonly sender: { readonly column: 'sender' };
+                readonly subject: { readonly column: 'subject' };
                 readonly vesselId: { readonly column: 'vesselId' };
               };
             };

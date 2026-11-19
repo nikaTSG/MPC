@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { mpcApi, type AiSettings, type Vessel, type FaultReportPayload } from '../api/mpcApi';
+import { mpcApi, type AiSettings, type Vessel, type FaultReportPayload, type NewVessel } from '../api/mpcApi';
 
 export function useVessels() {
   const [vessels, setVessels] = useState<Vessel[]>([]);
@@ -13,8 +13,8 @@ export function useVessels() {
       const data = await mpcApi.getVessels();
       setVessels(data);
       setError(null);
-    } catch (err: any) {
-      setError(err.message || 'Failed to load fleet vessels');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load fleet vessels');
     } finally {
       setLoading(false);
     }
@@ -35,6 +35,14 @@ export function useVessels() {
     return result;
   };
 
+  const addVessel = async (input: NewVessel) => {
+    const vessel = await mpcApi.createVessel(input);
+    setVessels((fleet) => [...fleet.filter(({ id }) => id !== vessel.id), vessel]
+      .sort((a, b) => a.name.localeCompare(b.name)));
+    setSelectedVesselId(vessel.id);
+    setError(null);
+  };
+
   const selectedVessel =
     vessels.find((v) => v.id === selectedVesselId) ?? null;
 
@@ -51,5 +59,6 @@ export function useVessels() {
     error,
     refetch: fetchVessels,
     reportVesselFault,
+    addVessel,
   };
 }

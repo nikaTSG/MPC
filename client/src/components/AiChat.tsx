@@ -10,6 +10,7 @@ interface AiChatProps {
   settings: AiSettings | null;
   onBusyChange: (busy: boolean) => void;
   active: boolean;
+  dashboardContext?: Record<string, unknown>;
 }
 
 interface PendingTurn {
@@ -17,7 +18,7 @@ interface PendingTurn {
   reply: string;
 }
 
-export default function AiChat({ settings, onBusyChange, active }: AiChatProps) {
+export default function AiChat({ settings, onBusyChange, active, dashboardContext }: AiChatProps) {
   const [messages, setMessages] = useState<AiChatMessage[]>([]);
   const [pending, setPending] = useState<PendingTurn | null>(null);
   const [draft, setDraft] = useState('');
@@ -59,7 +60,7 @@ export default function AiChat({ settings, onBusyChange, active }: AiChatProps) 
       }));
       const reply = await mpcApi.streamAiMessage(settings, [...history, message], (text) => {
         setPending((turn) => turn ? { ...turn, reply: turn.reply + text } : null);
-      }, controller.signal);
+      }, controller.signal, dashboardContext);
       setMessages([...messages, message, { role: 'assistant', content: reply }]);
       setPending(null);
     } catch (failure) {

@@ -34,6 +34,32 @@ export interface PdfReport {
   parts: ExtractedPart[];
 }
 
+export const INTAKE_CATEGORIES = {
+  DEFECT_REPORT: 'Defect report',
+  VESSEL_UPDATE: 'Vessel update',
+  SUPPLIER_QUOTE: 'Supplier quote',
+  OTHER: 'Other',
+} as const;
+
+export interface IntakeSource {
+  sender?: string;
+  subject?: string;
+  filename?: string;
+}
+
+export interface IntakeReview {
+  intakeId: string;
+  extraction: {
+    category: keyof typeof INTAKE_CATEGORIES;
+    vesselName: string | null;
+    imo: string | null;
+    severity: FaultSeverity | null;
+    summary: string;
+    parts: { partNumber: string | null; partName: string; quantity: number | null; notes: string | null }[];
+    facts: { label: string; value: string }[];
+  };
+}
+
 export interface Vessel {
   id: number;
   imo: string;
@@ -61,6 +87,17 @@ export interface Vessel {
   destinationPortCode: string | null;
   eta: string | null;
 }
+
+export const VESSEL_CATEGORIES = {
+  BULK_CARRIER: 'Bulk carriers',
+  CONTAINER: 'Container ships',
+  TANKER: 'Tankers',
+  GENERAL_CARGO: 'General cargo ships',
+} as const;
+
+export type VesselCategory = keyof typeof VESSEL_CATEGORIES;
+export type NewVessel = Pick<Vessel, 'name' | 'imo' | 'mmsi' | 'flagState' | 'yearBuilt' | 'dwt' |
+  'grossTonnage' | 'lengthOverall' | 'beam' | 'maxDraught'> & { vesselType: VesselCategory };
 
 export interface FaultReportPayload {
   vesselId: number;
@@ -117,7 +154,7 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   return data as T;
 }
 
-function requestAi<T>(path: 'pdf' | 'drafts' | 'report', settings: AiSettings, payload: object) {
+function requestAi<T>(path: 'pdf' | 'drafts' | 'report' | 'intake', settings: AiSettings, payload: object) {
   return request<T>(`/api/v1/ai/${path}`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${settings.apiKey}` },
@@ -131,6 +168,7 @@ async function streamAiMessage(
   messages: AiChatMessage[],
   onDelta: (text: string) => void,
   signal: AbortSignal,
+  dashboardContext?: Record<string, unknown>,
 ): Promise<string> {
   const response = await fetch('/api/v1/ai/chat', {
     method: 'POST',
@@ -139,7 +177,12 @@ async function streamAiMessage(
       'Content-Type': 'application/json',
       Authorization: `Bearer ${settings.apiKey}`,
     },
-    body: JSON.stringify({ messages, provider: settings.provider, model: settings.model }),
+    body: JSON.stringify({
+      messages,
+      provider: settings.provider,
+      model: settings.model,
+      ...(dashboardContext === undefined ? {} : { dashboardContext }),
+    }),
     cache: 'no-store',
     signal,
   });
@@ -210,6 +253,14 @@ export const mpcApi = {
   readPdf: (settings: AiSettings, filename: string, fileData: string) =>
     requestAi<PdfReport>('pdf', settings, { filename, fileData }),
 
+  readIntake: (settings: AiSettings, source: IntakeSource & { body?: string; fileData?: string }) =>
+    requestAi<IntakeReview>('intake', settings, source),
+
+  saveIntake: (review: IntakeReview, vesselId: number | null, source: IntakeSource) =>
+    request<{ id: string; vesselId: number | null; category: keyof typeof INTAKE_CATEGORIES }>('/api/v1/ai/intake/save', {
+      method: 'POST', body: JSON.stringify({ ...review, vesselId, ...source }),
+    }),
+
   generateAiDrafts: (settings: AiSettings, vesselId: number, extractedParts: ExtractedPart[]) =>
     requestAi<OrderDraft[]>('drafts', settings, { vesselId, extractedParts }),
 
@@ -219,6 +270,13 @@ export const mpcApi = {
   },
 
   getVesselById: (id: number) => request<Vessel>(`/api/v1/vessels/${id}`),
+
+  createVessel: async (vessel: NewVessel) => {
+    const result = await request<{ success: true; data: Vessel }>('/api/v1/vessels', {
+      method: 'POST', body: JSON.stringify(vessel),
+    });
+    return result.data;
+  },
 
   submitFaultReport: (payload: FaultReportPayload, settings?: AiSettings) =>
     settings

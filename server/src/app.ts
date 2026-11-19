@@ -6,6 +6,7 @@ import apiRoutes from './routes/index.js';
 import { createAiRouter } from './routes/ai.route.js';
 import { orderService } from './services/order.service.js';
 import { reportService } from './services/report.service.js';
+import { saveReviewedIntake } from './services/intake.service.js';
 //import { errorHandler } from './middlewares/errorHandler.js';
 
 const app = express();
@@ -14,6 +15,7 @@ app.use(cors());
 app.use('/api/v1/ai', createAiRouter({
   requestAiText,
   streamAiText,
+  saveReviewedIntake,
   generateDrafts: (vesselId, extractedParts, credentials) =>
     orderService.generateDraftsFromReport(vesselId, extractedParts, credentials),
   processFaultReport: (input, credentials) => reportService.processFaultReport(input, credentials),

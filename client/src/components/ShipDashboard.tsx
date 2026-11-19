@@ -1,5 +1,6 @@
-import { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import type React from 'react';
+import AddVesselDialog from './AddVesselDialog';
 import AiChat from './AiChat';
 import AiPdfWorkflow from './AiPdfWorkflow';
 import AiSettingsPanel from './AiSettingsPanel';
@@ -7,7 +8,9 @@ import LiveMap from './LiveMap';
 import ShipModel from './shipModel';
 import { useVessels } from '../hooks/useVessel';
 import { useOrders } from '../hooks/useOrder';
-import type { AiSettings, Vessel } from '../api/mpcApi';
+import { usePortWeather } from '../hooks/usePortWeather';
+import { DEMO_BERTH_HOURS, estimatePortCall } from '../utils/portCalls';
+import { VESSEL_CATEGORIES, type AiSettings, type OrderDraft, type Vessel } from '../api/mpcApi';
 
 type SectionId = 'stern' | 'midship' | 'bow';
 const DASHBOARD_VIEWS = [
@@ -43,6 +46,32 @@ const getStatusLabel = (hp: number): string | undefined => {
   if (hp < 80) return 'Warning';
   return undefined;
 };
+
+function boundedRecords<T>(records: readonly T[], serialize: (record: T) => object, maxChars: number) {
+  const entries: object[] = [];
+  let length = 2;
+  for (const record of records) {
+    const entry = serialize(record);
+    length += JSON.stringify(entry).length + 1;
+    if (length > maxChars) break;
+    entries.push(entry);
+  }
+  return { entries, total: records.length, included: entries.length };
+}
+
+function summarizeOrder(order: OrderDraft) {
+  return {
+    id: order.id,
+    vesselId: order.vesselId,
+    status: order.status,
+    urgency: order.urgency,
+    supplier: order.supplier?.name.slice(0, 80),
+    itemCount: order.items.length,
+    items: order.items.slice(0, 8).map(({ partNumber, partName, quantity }) => ({
+      partNumber: partNumber.slice(0, 48), partName: partName.slice(0, 80), quantity,
+    })),
+  };
+}
 
 // Maps the database vessel's aggregate health & specs onto the 3 interactive SVG sections
 function deriveSectionsFromVessel(vessel: Vessel | null): Record<SectionId, SectionData> {
@@ -129,6 +158,7 @@ export const ShipDashboard: React.FC = () => {
     loading: vesselsLoading,
     error: vesselsError,
     reportVesselFault,
+    addVessel,
   } = useVessels();
 
   const {
@@ -141,6 +171,7 @@ export const ShipDashboard: React.FC = () => {
   } = useOrders('PENDING_APPROVAL');
 
   const [activeTab, setActiveTab] = useState<DashboardTab>('diagnostics');
+  const [addingVessel, setAddingVessel] = useState(false);
   const [selectedSection, setSelectedSection] = useState<SectionId>('stern');
   const [editingOrderId, setEditingOrderId] = useState<number | null>(null);
   const [draftSubject, setDraftSubject] = useState('');
@@ -154,7 +185,13 @@ export const ShipDashboard: React.FC = () => {
   const [chatRevision, setChatRevision] = useState(0);
   const [chatBusy, setChatBusy] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
+  const [now, setNow] = useState(Date.now);
   const views = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     if (!selectedVessel && vessels.length > 0) {
@@ -183,6 +220,47 @@ export const ShipDashboard: React.FC = () => {
 
   const sections = deriveSectionsFromVessel(selectedVessel);
   const activeData = sections[selectedSection];
+  const portCalls = useMemo(() => new Map(vessels.map((vessel) => [vessel.id, estimatePortCall(vessel, now)])), [vessels, now]);
+  const selectedPortCall = selectedVessel ? portCalls.get(selectedVessel.id) ?? null : null;
+  const portWeather = usePortWeather(selectedPortCall?.port ?? null, activeTab === 'map');
+  const dashboardContext = activeTab === 'chat' ? {
+    selectedVesselId: selectedVessel?.id ?? null,
+    vessels: {
+      source: 'Vessels connector via useVessels',
+      status: vesselsError ? 'unavailable' : vesselsLoading ? 'loading' : 'ready',
+      ...boundedRecords(selectedVessel ? [selectedVessel, ...vessels.filter(({ id }) => id !== selectedVessel.id)] : vessels, (vessel) => {
+        const call = portCalls.get(vessel.id);
+        return {
+          id: vessel.id, imo: vessel.imo, name: vessel.name.slice(0, 80),
+          type: vessel.vesselType, healthPercent: vessel.health, status: vessel.operationalStatus,
+          latitude: vessel.latitude, longitude: vessel.longitude, speedKnots: vessel.speedKnots,
+          heading: vessel.heading, lengthOverallM: vessel.lengthOverall, maxDraughtM: vessel.maxDraught,
+          destination: vessel.destinationPortCode, reportedEta: vessel.eta,
+          portCall: call && {
+            port: call.port.name, remainingNm: call.remainingNm, estimatedArrivalUtc: call.estimatedArrivalUtc,
+            demoWaitMinutes: call.demoWaitMinutes, demoBerthTimeUtc: call.demoBerthTimeUtc,
+            fitsPublishedDemoLimits: call.fitsPublishedDemoLimits,
+          },
+        };
+      }, 8_000),
+    },
+    selectedVesselDiagnostics: selectedVessel ? {
+      source: 'Dashboard estimates based on aggregate vessel health',
+      sections,
+    } : null,
+    pendingOrders: {
+      source: 'Orders connector via useOrders, pending approval',
+      status: ordersError ? 'unavailable' : ordersLoading ? 'loading' : 'ready',
+      ...boundedRecords(orders, summarizeOrder, 4_000),
+    },
+    portCallProvenance: {
+      eta: 'MPC remaining route distance divided by current stored speed. Position timestamp unavailable.',
+      berth: `Synthetic berth scenario, ${DEMO_BERTH_HOURS}. Actual availability is unknown.`,
+      selectedDestinationForecast: portWeather?.forecast ? {
+        source: 'Open-Meteo Marine', portCode: portWeather.portCode, ...portWeather.forecast,
+      } : null,
+    },
+  } : undefined;
 
   function changeAiSettings(settings: AiSettings | null) {
     const credentialsChanged = settings?.apiKey !== aiSettings?.apiKey || settings?.provider !== aiSettings?.provider;
@@ -266,21 +344,39 @@ export const ShipDashboard: React.FC = () => {
                 {!selectedVessel && (
                   <option value="">{vesselsLoading ? 'Loading vessels…' : 'Select vessel'}</option>
                 )}
-                {vessels.map((vessel) => (
+                {Object.entries(VESSEL_CATEGORIES).map(([type, label]) => {
+                  const group = vessels.filter((vessel) => vessel.vesselType === type);
+                  return (
+                    <optgroup key={type} label={label}>
+                      {group.length ? group.map((vessel) => <option key={vessel.id} value={vessel.id}>{vessel.name}</option>)
+                        : <option disabled>No vessels yet</option>}
+                    </optgroup>
+                  );
+                })}
+                {vessels.filter((vessel) => !Object.hasOwn(VESSEL_CATEGORIES, vessel.vesselType)).map((vessel) => (
                   <option key={vessel.id} value={vessel.id}>{vessel.name}</option>
                 ))}
               </select>
             </div>
+            <button type="button" className="dashboard-button primary-button" onClick={() => setAddingVessel(true)} disabled={vesselsLoading}>
+              Add vessel
+            </button>
             <button
               type="button"
               className="dashboard-button fault-button"
               onClick={handleSimulateFault}
               disabled={!selectedVessel || !aiSettings || simulatingFault || pdfBusy}
             >
-              {simulatingFault ? 'Processing report…' : 'Simulate fault report'}
+              {simulatingFault ? 'Simulating…' : 'Simulate fault'}
             </button>
           </div>
         </header>
+
+        {addingVessel && <AddVesselDialog onAdd={async (input) => {
+          await addVessel(input);
+          setSelectedSection('stern');
+          setActiveTab('diagnostics');
+        }} onClose={() => setAddingVessel(false)} />}
 
         <div ref={views} className="dashboard-views" role="group" aria-label="Dashboard view">
           {DASHBOARD_VIEWS.map(({ id, label }) => (
@@ -302,7 +398,7 @@ export const ShipDashboard: React.FC = () => {
         {simulationError && <p className="dashboard-error" role="alert">{simulationError}</p>}
 
         {activeTab === 'diagnostics' && (
-          <section className="dashboard-content" aria-label="Vessel diagnostics">
+          <section className={`dashboard-content${selectedVessel ? ' diagnostics-workspace' : ''}`} aria-label="Vessel diagnostics">
             {selectedVessel ? (
               <>
                 <div className="hull-sections" role="group" aria-label="Hull section">
@@ -352,11 +448,13 @@ export const ShipDashboard: React.FC = () => {
         )}
 
         {activeTab === 'map' && (
-          <section className="dashboard-content" aria-label="Route map">
+          <section className="dashboard-content map-workspace" aria-label="Route map">
             <LiveMap
               vessels={vessels}
               selectedVessel={selectedVessel}
               onSelectVessel={setSelectedVesselId}
+              portCall={selectedPortCall}
+              portWeather={portWeather}
             />
           </section>
         )}
@@ -366,13 +464,14 @@ export const ShipDashboard: React.FC = () => {
           active={activeTab === 'chat'}
           settings={aiSettings}
           onBusyChange={setChatBusy}
+          dashboardContext={dashboardContext}
         />
 
         <div className="dashboard-content pdf-panel" hidden={activeTab !== 'procurement'}>
           <AiPdfWorkflow
             key={settingsRevision}
             settings={aiSettings}
-            vessel={selectedVessel}
+            vessels={vessels}
             blocked={simulatingFault}
             onBusyChange={setPdfBusy}
             onDraftsCreated={refetchOrders}

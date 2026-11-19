@@ -8,6 +8,10 @@
       "model": "Order",
       "namespace": "__unbound__"
     },
+    "ReaderIntake": {
+      "model": "ReaderIntake",
+      "namespace": "__unbound__"
+    },
     "Supplier": {
       "model": "Supplier",
       "namespace": "__unbound__"
@@ -183,6 +187,114 @@
               },
               "namespaceId": "__unbound__",
               "table": "Order"
+            }
+          },
+          "ReaderIntake": {
+            "fields": {
+              "category": {
+                "nullable": false,
+                "type": {
+                  "codecId": "sqlite/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "createdAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "sqlite/datetime@1",
+                  "kind": "scalar"
+                }
+              },
+              "extraction": {
+                "nullable": false,
+                "type": {
+                  "codecId": "sqlite/json@1",
+                  "kind": "scalar"
+                }
+              },
+              "filename": {
+                "nullable": true,
+                "type": {
+                  "codecId": "sqlite/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "id": {
+                "nullable": false,
+                "type": {
+                  "codecId": "sqlite/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "sender": {
+                "nullable": true,
+                "type": {
+                  "codecId": "sqlite/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "subject": {
+                "nullable": true,
+                "type": {
+                  "codecId": "sqlite/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "vesselId": {
+                "nullable": true,
+                "type": {
+                  "codecId": "sqlite/integer@1",
+                  "kind": "scalar"
+                }
+              }
+            },
+            "relations": {
+              "vessel": {
+                "cardinality": "N:1",
+                "nullable": true,
+                "on": {
+                  "localFields": [
+                    "vesselId"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "Vessel",
+                  "namespace": "__unbound__"
+                }
+              }
+            },
+            "storage": {
+              "fields": {
+                "category": {
+                  "column": "category"
+                },
+                "createdAt": {
+                  "column": "createdAt"
+                },
+                "extraction": {
+                  "column": "extraction"
+                },
+                "filename": {
+                  "column": "filename"
+                },
+                "id": {
+                  "column": "id"
+                },
+                "sender": {
+                  "column": "sender"
+                },
+                "subject": {
+                  "column": "subject"
+                },
+                "vesselId": {
+                  "column": "vesselId"
+                }
+              },
+              "namespaceId": "__unbound__",
+              "table": "ReaderIntake"
             }
           },
           "Supplier": {
@@ -716,6 +828,91 @@
               },
               "uniques": []
             },
+            "ReaderIntake": {
+              "columns": {
+                "category": {
+                  "codecId": "sqlite/text@1",
+                  "dataType": "sqlite/text",
+                  "nullable": false
+                },
+                "createdAt": {
+                  "codecId": "sqlite/datetime@1",
+                  "dataType": "sqlite/datetime",
+                  "default": {
+                    "expression": "now()",
+                    "kind": "function"
+                  },
+                  "nullable": false
+                },
+                "extraction": {
+                  "codecId": "sqlite/json@1",
+                  "dataType": "sqlite/json",
+                  "nullable": false
+                },
+                "filename": {
+                  "codecId": "sqlite/text@1",
+                  "dataType": "sqlite/text",
+                  "nullable": true
+                },
+                "id": {
+                  "codecId": "sqlite/text@1",
+                  "dataType": "sqlite/text",
+                  "nullable": false
+                },
+                "sender": {
+                  "codecId": "sqlite/text@1",
+                  "dataType": "sqlite/text",
+                  "nullable": true
+                },
+                "subject": {
+                  "codecId": "sqlite/text@1",
+                  "dataType": "sqlite/text",
+                  "nullable": true
+                },
+                "vesselId": {
+                  "codecId": "sqlite/integer@1",
+                  "dataType": "sqlite/integer",
+                  "nullable": true
+                }
+              },
+              "foreignKeys": [
+                {
+                  "index": {
+                    "name": "ReaderIntake_vesselId_idx_90e6d4c8"
+                  },
+                  "source": {
+                    "columns": [
+                      "vesselId"
+                    ],
+                    "namespaceId": "__unbound__",
+                    "tableName": "ReaderIntake"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "__unbound__",
+                    "tableName": "Vessel"
+                  }
+                }
+              ],
+              "indexes": [
+                {
+                  "columns": [
+                    "vesselId"
+                  ],
+                  "name": "ReaderIntake_vesselId_idx_90e6d4c8",
+                  "prefix": "ReaderIntake_vesselId_idx",
+                  "unique": false
+                }
+              ],
+              "primaryKey": {
+                "columns": [
+                  "id"
+                ]
+              },
+              "uniques": []
+            },
             "Supplier": {
               "columns": {
                 "createdAt": {
@@ -985,7 +1182,7 @@
         "id": "__unbound__"
       }
     },
-    "storageHash": "0060784fda069892b7100fcf6b90f1e1bee95d3a85bf010d7db2358f75b9a9b4"
+    "storageHash": "595aeea3d2dc4d1f00a693168d859a992943af2cf1af991dc96183c34bf9ee5d"
   },
   "execution": {
     "executionHash": "765c42be0aa86af3e62d4e5ca8ab7a4fd841eddc9948fd4e2655ec8d19017d99",

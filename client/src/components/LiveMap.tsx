@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import type React from 'react';
 import {
   MapContainer,
@@ -14,15 +14,58 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import type { Vessel } from '../api/mpcApi';
 import { computeMaritimeRoute, MARITIME_PORTS } from '../utils/seaRouter';
+import {
+  DEMO_BERTH_HOURS, estimatePortCall, getWorldPorts, MARINE_WEATHER_SOURCE, WORLD_PORT_SOURCE,
+  type MarineConditions, type WorldPort,
+} from '../utils/portCalls';
 
 interface LiveMapProps {
   vessels: Vessel[];
   selectedVessel: Vessel | null;
   onSelectVessel: (id: number) => void;
+  portCall: ReturnType<typeof estimatePortCall>;
+  portWeather: { forecast: MarineConditions | null } | null;
 }
 
 const INITIAL_ZOOM = 4;
 const MIN_VESSEL_ZOOM = 3;
+
+const utcTime = new Intl.DateTimeFormat('en-GB', {
+  dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC',
+});
+
+function formatUtc(value: string | null) {
+  const time = value ? Date.parse(value) : NaN;
+  return Number.isFinite(time) ? `${utcTime.format(time)} UTC` : 'Unavailable';
+}
+
+function formatWait(minutes: number | null) {
+  if (minutes === null) return 'Unavailable';
+  return minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
+}
+
+const WorldwidePortMarkers = memo(function WorldwidePortMarkers({ ports }: { ports: WorldPort[] }) {
+  const [renderer] = useState(() => L.canvas());
+  const [selected, setSelected] = useState<WorldPort | null>(null);
+  const markers = useMemo(() => ports.map((port) => (
+    <CircleMarker key={port.id} center={port.coords} radius={3} renderer={renderer}
+      pathOptions={{ stroke: false, fillColor: '#b59bfa', fillOpacity: 0.75 }}
+      eventHandlers={{ click: () => setSelected(port) }} />
+  )), [ports, renderer]);
+  return (
+    <>
+      {markers}
+      {selected && (
+        <Popup key={selected.id} position={selected.coords} eventHandlers={{ remove: () => {
+          setSelected((port) => port?.id === selected.id ? null : port);
+        } }}>
+          <strong>{selected.name}{selected.country && ` (${selected.country})`}</strong>
+          <p>World Port Index · Berth availability unknown</p>
+        </Popup>
+      )}
+    </>
+  );
+});
 
 const getVesselStatusColor = (health: number): string => {
   if (health < 55) return '#EF4444'; // Critical: Red
@@ -36,6 +79,7 @@ const MapCameraAndZoomController: React.FC<{
   onZoomChange: (zoom: number) => void;
 }> = ({ center, onZoomChange }) => {
   const map = useMap();
+  const [latitude, longitude] = center;
 
   useMapEvents({
     zoomend: () => {
@@ -44,8 +88,18 @@ const MapCameraAndZoomController: React.FC<{
   });
 
   useEffect(() => {
-    map.flyTo(center, map.getZoom(), { duration: 1.0 });
-  }, [center[0], center[1], map]);
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      map.setView([latitude, longitude], map.getZoom(), { animate: false });
+    } else {
+      map.flyTo([latitude, longitude], map.getZoom(), { duration: 1.0 });
+    }
+  }, [latitude, longitude, map]);
+
+  useEffect(() => {
+    const observer = new ResizeObserver(() => map.invalidateSize({ pan: false }));
+    observer.observe(map.getContainer());
+    return () => observer.disconnect();
+  }, [map]);
 
   return null;
 };
@@ -125,21 +179,33 @@ export const LiveMap: React.FC<LiveMapProps> = ({
   vessels,
   selectedVessel,
   onSelectVessel,
+  portCall,
+  portWeather,
 }) => {
   const [currentZoom, setCurrentZoom] = useState<number>(INITIAL_ZOOM);
+  const [showWorldwide, setShowWorldwide] = useState(false);
+  const [worldwidePorts, setWorldwidePorts] = useState<WorldPort[] | null>(null);
+  const [worldwideError, setWorldwideError] = useState(false);
+
+  useEffect(() => {
+    if (!showWorldwide || worldwidePorts) return;
+    const controller = new AbortController();
+    getWorldPorts(AbortSignal.any([controller.signal, AbortSignal.timeout(15_000)]))
+      .then((ports) => { if (!controller.signal.aborted) setWorldwidePorts(ports); })
+      .catch(() => { if (!controller.signal.aborted) setWorldwideError(true); });
+    return () => controller.abort();
+  }, [showWorldwide, worldwidePorts]);
 
   const mappableVessels = vessels.filter(
     (v): v is Vessel & { latitude: number; longitude: number } =>
       v.latitude !== null && v.longitude !== null
   );
 
-  const activeShip =
-    mappableVessels.find((v) => v.id === selectedVessel?.id) || mappableVessels[0] || null;
+  const activeShip = selectedVessel
+    ? mappableVessels.find((v) => v.id === selectedVessel.id) ?? null
+    : mappableVessels[0] ?? null;
 
-  const routeData = useMemo(
-    () => (activeShip ? computeMaritimeRoute(activeShip) : null),
-    [activeShip]
-  );
+  const routeData = activeShip ? computeMaritimeRoute(activeShip) : null;
 
   const mapCenter: [number, number] = activeShip
     ? [activeShip.latitude, activeShip.longitude]
@@ -242,6 +308,9 @@ export const LiveMap: React.FC<LiveMapProps> = ({
           animation: radarPulse 2s ease-out infinite;
           pointer-events: none;
         }
+        @media (prefers-reduced-motion: reduce) {
+          .cyber-route-line, .cyber-radar-ring { animation: none; }
+        }
       `}</style>
 
       {/* Top Tactical Telemetry HUD */}
@@ -274,13 +343,58 @@ export const LiveMap: React.FC<LiveMapProps> = ({
         )}
       </div>
 
+      <section className="port-call" aria-label="Port call">
+        <div className="port-call-heading">
+          <div>
+            <h2>Port call</h2>
+            {portCall && <p>{portCall.port.name} · {portCall.port.code}</p>}
+          </div>
+          <div className="port-layer-control">
+            <button type="button" className="dashboard-button" aria-pressed={showWorldwide} onClick={() => {
+              setWorldwideError(false);
+              setShowWorldwide(!showWorldwide);
+            }}>Worldwide ports</button>
+            {showWorldwide && (
+              <small role="status">
+                {worldwideError ? 'Couldn’t load ports. Toggle to retry.' : worldwidePorts
+                  ? <a href={WORLD_PORT_SOURCE} target="_blank" rel="noreferrer">{worldwidePorts.length.toLocaleString()} {worldwidePorts.length === 1 ? 'port' : 'ports'} · World Port Index</a>
+                  : 'Loading ports…'}
+              </small>
+            )}
+          </div>
+        </div>
+        {portCall ? (
+          <>
+            <dl className="port-call-metrics">
+              <div><dt>Estimated arrival</dt><dd>{formatUtc(portCall.estimatedArrivalUtc)}</dd></div>
+              <div><dt>Demo berth time</dt><dd>{formatUtc(portCall.demoBerthTimeUtc)}</dd></div>
+              <div><dt>Demo wait</dt><dd>{formatWait(portCall.demoWaitMinutes)}</dd></div>
+              <div>
+                <dt>Waves near port now</dt>
+                <dd>{portWeather?.forecast ? `${portWeather.forecast.waveHeightM} m` : portWeather ? 'Unavailable' : 'Loading…'}</dd>
+              </div>
+            </dl>
+            <p className="port-call-note">
+              {portCall.reportedArrivalUtc && <>Reported ETA {formatUtc(portCall.reportedArrivalUtc)}. </>}
+              ETA uses the stored speed and MPC route. Demo berth hours {DEMO_BERTH_HOURS}. Confirm actual availability with the port.
+              {!portCall.fitsPublishedDemoLimits && ' Vessel exceeds MPC’s modeled port size limits.'}
+            </p>
+            {portWeather?.forecast && (
+              <p className="port-call-note">{formatUtc(portWeather.forecast.forecastTimeUtc)} ·{' '}
+                <a href={MARINE_WEATHER_SOURCE} target="_blank" rel="noreferrer">Open-Meteo Marine</a>
+              </p>
+            )}
+          </>
+        ) : <p className="port-call-note">No MPC destination for this vessel.</p>}
+      </section>
+
       {/* Map Viewport */}
       <div style={mapStyles.mapBox}>
         <MapContainer
           center={mapCenter}
           zoom={INITIAL_ZOOM}
           minZoom={2}
-          style={{ height: '100%', width: '100%' }}
+          style={{ position: 'absolute', inset: 0 }}
         >
           <MapCameraAndZoomController center={mapCenter} onZoomChange={setCurrentZoom} />
 
@@ -296,6 +410,8 @@ export const LiveMap: React.FC<LiveMapProps> = ({
             maxNativeZoom={13}
             className="cyber-map-tiles"
           />
+
+          {showWorldwide && worldwidePorts && <WorldwidePortMarkers ports={worldwidePorts} />}
 
           {/* Dual-Layer Glowing Sea-Lane Route */}
           {routeData && routeData.coordinates.length > 1 && (
@@ -346,8 +462,6 @@ export const LiveMap: React.FC<LiveMapProps> = ({
             );
             const isRecommendedRepair = isDegraded && Boolean(repairMatch);
 
-            if (!isDest && !isRecommendedRepair && !port.hasRepairDrydock) return null;
-
             return (
               <Marker
                 key={port.code}
@@ -368,6 +482,7 @@ export const LiveMap: React.FC<LiveMapProps> = ({
                     </strong>
                     <br />
                     Max Draught: {port.maxDraught}m | Max LOA: {port.maxLoa}m
+                    <div>Berth availability unknown</div>
                     {activeShip && (
                       <div
                         style={{
@@ -517,7 +632,7 @@ export const LiveMap: React.FC<LiveMapProps> = ({
               <span key={port.code} style={mapStyles.repairPill}>
                 <strong>{port.code}</strong> ({port.name}) • {distanceFromVesselNm} NM •{' '}
                 <span style={{ color: berthCleared ? '#10B981' : '#EF4444' }}>
-                  {berthCleared ? 'BERTH OK' : 'TOO SHALLOW'}
+                  {berthCleared ? 'SIZE FIT' : 'EXCEEDS SIZE LIMITS'}
                 </span>
               </span>
             ))}
@@ -538,6 +653,7 @@ const mapStyles: Record<string, React.CSSProperties> = {
   infoBar: {
     backgroundColor: '#09121F',
     border: '1px solid #263B51',
+    borderRadius: 'var(--radius-card)',
     padding: '12px 16px',
     display: 'flex',
     justifyContent: 'space-between',
@@ -563,10 +679,13 @@ const mapStyles: Record<string, React.CSSProperties> = {
     fontFamily: 'monospace',
   },
   mapBox: {
-    height: '430px',
+    position: 'relative',
+    flex: 1,
+    minHeight: 'clamp(320px, 45dvh, 430px)',
     width: '100%',
     overflow: 'hidden',
     border: '1px solid #263B51',
+    borderRadius: 'var(--radius-panel)',
   },
   calloutCard: {
     position: 'relative',
