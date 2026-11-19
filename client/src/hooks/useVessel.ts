@@ -46,9 +46,7 @@ export function useVessels() {
   const selectedVessel =
     vessels.find((v) => v.id === selectedVesselId) ?? null;
 
-  const vesselsNeedingMaintenance = vessels.filter(
-    (v) => v.health < 70 || v.operationalStatus === 'MAINTENANCE_REQUIRED'
-  );
+  const vesselsNeedingMaintenance = vessels.filter((vessel) => vessel.health < 70);
 
   return {
     vessels,

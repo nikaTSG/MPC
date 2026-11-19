@@ -759,7 +759,7 @@ export const ShipDashboard: React.FC = () => {
         <section className="sidebar-panel" aria-labelledby="fleet-alerts">
           <h2 id="fleet-alerts">Fleet maintenance alerts</h2>
           {vesselsLoading || vesselsError || vesselsNeedingMaintenance.length === 0 ? (
-            <p className="sidebar-empty">
+            <p className="sidebar-empty" role="status">
               {vesselsLoading ? 'Loading fleet…' : vesselsError ? 'Alerts unavailable.' : (
                 vessels.length === 0 ? 'No vessels available to monitor.' : 'No maintenance alerts.'
               )}
@@ -776,7 +776,7 @@ export const ShipDashboard: React.FC = () => {
                     <span className="fleet-alert-name">{vessel.name}</span>
                     <strong style={{ color: getHealthColor(vessel.health) }}>{vessel.health}%</strong>
                     <small>IMO {vessel.imo}</small>
-                    <small>{vessel.operationalStatus.replaceAll('_', ' ')}</small>
+                    <small>Low hull health</small>
                   </button>
                 </li>
               ))}
