@@ -121,37 +121,4 @@ export const vesselService = {
     }
   },
 
-  // Apply deterministic health degradation from an incoming fault report
-  async applyFaultDamage(
-    vesselId: number,
-    severity: FaultSeverity,
-    partCount: number
-  ) {
-    const vessel = await this.getVesselById(vesselId);
-
-    if (!vessel) {
-      throw new Error(`Vessel with ID ${vesselId} not found`);
-    }
-
-    const { previousHealth, newHealth, penalty } = calculateFaultDamage(
-      vessel.health,
-      severity,
-      partCount,
-    );
-
-    const updatedVessel = await db.orm.Vessel
-      .where((v) => v.id.eq(vesselId))
-      .update({
-        health: newHealth,
-        operationalStatus:
-          newHealth < 70 ? 'MAINTENANCE_REQUIRED' : vessel.operationalStatus,
-      });
-
-    return {
-      vessel: updatedVessel,
-      previousHealth,
-      newHealth,
-      penalty,
-    };
-  },
 };

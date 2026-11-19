@@ -1,4 +1,5 @@
 import { db } from '../../prisma/db.js';
+import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { draftSupplierEmails } from '../integrations/ai/orderAgent.js';
 import type { AiCredentials } from '../integrations/ai/aiProvider.js';
@@ -10,7 +11,7 @@ export function readRepairPort(value: unknown): RepairPort | null {
   const { code, name, latitude, longitude } = value as Record<string, unknown>;
   const normalizedCode = typeof code === 'string' ? code.trim().toUpperCase() : code;
   if ((normalizedCode !== null && (typeof normalizedCode !== 'string' || !/^[A-Z]{2}[A-Z0-9]{3}$/.test(normalizedCode))) ||
-      typeof name !== 'string' || !name.trim() || name.length > 200 ||
+      typeof name !== 'string' || !name.trim() || name.length > 200 || /[\x00-\x1f\x7f\u2028\u2029]/.test(name) ||
       typeof latitude !== 'number' || !Number.isFinite(latitude) || Math.abs(latitude) > 90 ||
       typeof longitude !== 'number' || !Number.isFinite(longitude) || Math.abs(longitude) > 180) return null;
   return { code: normalizedCode, name: name.trim(), latitude, longitude };
@@ -31,12 +32,14 @@ type OrderCreateInput = {
   items: ExtractedPartInput[];
   urgency: 'LOW' | 'NORMAL' | 'CRITICAL';
   status: 'PENDING_APPROVAL';
+  repairPort?: RepairPort;
 };
 
 async function prepareSupplierDrafts(
   vesselId: number,
   extractedParts: ExtractedPartInput[],
   credentials: AiCredentials,
+  repairPort?: RepairPort,
 ) {
   const vessel = await db.orm.Vessel.where((v) => v.id.eq(vesselId)).first();
   if (!vessel) {
@@ -44,8 +47,9 @@ async function prepareSupplierDrafts(
   }
 
   const suppliers = await db.orm.Supplier.all();
-  const agentResult = await draftSupplierEmails({ vessel, extractedParts, suppliers }, credentials);
-  return { vessel, suppliers, drafts: agentResult.drafts };
+  const selection = repairPort ? { repairPort } : {};
+  const agentResult = await draftSupplierEmails({ vessel, extractedParts, suppliers, ...selection }, credentials);
+  return { vessel, suppliers, drafts: agentResult.drafts, ...selection };
 }
 
 export type PreparedSupplierDrafts = Awaited<ReturnType<typeof prepareSupplierDrafts>>;
@@ -85,7 +89,7 @@ async function persistPreparedSupplierDrafts<Order extends object>(
       vesselId: prepared.vessel.id,
       supplierId: draft.supplierId,
       subject: draft.subject,
-      body: draft.body,
+      body: prepared.repairPort ? withDeliveryPort(draft.body, prepared.repairPort) : draft.body,
       items: draft.matchedParts.map((part) => ({
         partNumber: part.partNumber,
         partName: part.partName,
@@ -94,6 +98,7 @@ async function persistPreparedSupplierDrafts<Order extends object>(
       })),
       urgency: draft.urgency,
       status: 'PENDING_APPROVAL',
+      ...(prepared.repairPort && { repairPort: prepared.repairPort }),
     });
 
     orders.push({
@@ -106,6 +111,23 @@ async function persistPreparedSupplierDrafts<Order extends object>(
   return orders;
 }
 
+const OPEN_ORDER_STATUSES = ['PENDING_APPROVAL', 'APPROVED', 'SENT'];
+
+function samePort(left: RepairPort, right: RepairPort | null) {
+  return right !== null && left.code === right.code && left.name === right.name &&
+    left.latitude === right.latitude && left.longitude === right.longitude;
+}
+
+function deliveryPortLine(port: RepairPort) {
+  return `RFQ delivery port: ${port.name}${port.code ? ` (${port.code})` : ''}`;
+}
+
+function withDeliveryPort(body: string, port: RepairPort) {
+  // The first line belongs to the saved delivery selection, including after a pending draft edit.
+  const editableText = body.replace(/^RFQ delivery port:[^\n]*(?:\n|$)/i, '').trim();
+  return `${deliveryPortLine(port)}\n\n${editableText}`.trimEnd();
+}
+
 export const orderService = {
   //!KOUKH EDW KANEIS DOULITSA
   //Generate AI drafts from parsed PDF parts and persist them as PENDING_APPROVAL
@@ -113,10 +135,12 @@ export const orderService = {
     vesselId: number,
     extractedParts: ExtractedPartInput[],
     credentials: AiCredentials,
+    repairPort?: RepairPort,
   ) {
-    const prepared = await prepareSupplierDrafts(vesselId, extractedParts, credentials);
+    const prepared = await prepareSupplierDrafts(vesselId, extractedParts, credentials, repairPort);
+    const repairFaultId = randomUUID();
     return db.transaction((tx) =>
-      persistPreparedSupplierDrafts(prepared, (input) => tx.orm.Order.create(input)),
+      persistPreparedSupplierDrafts(prepared, (input) => tx.orm.Order.create({ ...input, repairFaultId })),
     );
   },
 
@@ -124,8 +148,9 @@ export const orderService = {
     vesselId: number,
     extractedParts: ExtractedPartInput[],
     credentials: AiCredentials,
+    repairPort?: RepairPort,
   ) {
-    return prepareSupplierDrafts(vesselId, extractedParts, credentials);
+    return prepareSupplierDrafts(vesselId, extractedParts, credentials, repairPort);
   },
 
   async persistPreparedDrafts<Order extends object>(
@@ -159,9 +184,15 @@ export const orderService = {
 
   // 4. Edit draft subject/body before operator approval
   async updateDraft(id: number, data: { subject?: string; body?: string }) {
-    return db.orm.Order
-      .where((o) => o.id.eq(id))
-      .update(data);
+    const pending = db.orm.Order.where((o, { fns }) => fns.and(o.id.eq(id), o.status.eq('PENDING_APPROVAL')));
+    if (data.body !== undefined) {
+      const order = await pending.select('repairPort').first();
+      if (!order) return null;
+      const port = readRepairPort(order.repairPort);
+      if (port) data = { ...data, body: withDeliveryPort(data.body, port) };
+    }
+    // Recheck status in this write in case the approval happened while preparing the text.
+    return pending.update(data);
   },
 
   async approveOrder(id: number) {
@@ -172,7 +203,7 @@ export const orderService = {
     return updated;
   },
 
-  async recordSend(id: number, requestedPort?: RepairPort) {
+  async recordSend(id: number) {
     return retryOrderTransaction(() => db.transaction(async (tx) => {
       const order = await tx.orm.Order.where((row) => row.id.eq(id)).include('vessel').first();
       if (!order) return { status: 404, body: { error: 'Order not found.' } } as const;
@@ -184,74 +215,72 @@ export const orderService = {
       }
 
       const storedPort = readRepairPort(order.repairPort);
-      if (order.repairPort !== null && !storedPort) throw new Error('Invalid stored repair port.');
-      if (requestedPort && storedPort && (requestedPort.code !== storedPort.code || requestedPort.name !== storedPort.name ||
-          requestedPort.latitude !== storedPort.latitude || requestedPort.longitude !== storedPort.longitude)) {
-        return { status: 409, body: { error: 'A different repair port was already selected for this fault.' } } as const;
-      }
 
       const { repairFaultId } = order;
       const related = tx.orm.Order.where((row, { fns }) => repairFaultId === null ? row.id.eq(id) :
         fns.and(row.vesselId.eq(order.vesselId), row.repairFaultId.eq(repairFaultId)));
       const now = new Date();
       const sent = await tx.orm.Order.where((row, { fns }) => fns.and(row.id.eq(id), row.externalSentAt.isNull()))
-        .update({ status: order.status === 'REPAIR_COMPLETED' ? order.status : 'SENT', externalSentAt: now, sentAt: now });
+        .update({ status: order.status === 'REPAIR_COMPLETED' ? order.status : 'SENT', externalSentAt: now, sentAt: order.sentAt ?? now });
       if (!sent) throw new Error('The external send could not be recorded.');
-      if (requestedPort && !storedPort) await related.updateAll({ repairPort: requestedPort });
 
-      const group = await related.select('status', 'externalSentAt').all();
-      const dispatchPending = group.some((rfq) => rfq.externalSentAt === null || rfq.status === 'REJECTED');
-      const port = storedPort ?? requestedPort;
-      if (dispatchPending || !port) {
+      const group = await related.select('status', 'externalSentAt', 'repairPort', 'body').all();
+      const activeRepairs = group.some(row => row.status !== 'REPAIR_COMPLETED' && row.status !== 'REJECTED');
+      const rejected = group.some(row => row.status === 'REJECTED');
+      const dispatchPending = activeRepairs && !rejected && group.some(row => row.externalSentAt === null);
+      if (!activeRepairs || rejected || dispatchPending || !storedPort ||
+          !group.every(row => samePort(storedPort, readRepairPort(row.repairPort)) &&
+            row.body.split('\n', 1)[0] === deliveryPortLine(storedPort))) {
         return { status: 200, body: { vessel: order.vessel, diverted: false, dispatchPending } } as const;
       }
       const vessel = await tx.orm.Vessel.where((row) => row.id.eq(order.vesselId))
-        .update({ destinationPortCode: port.code, repairDestination: port, eta: null });
+        .update({ destinationPortCode: storedPort.code, repairDestination: storedPort, eta: null });
       if (!vessel) throw new Error('The linked vessel no longer exists.');
       return { status: 200, body: { vessel, diverted: true, dispatchPending: false } } as const;
     }));
   },
 
-  async completeRepair(id: number, measurement?: { measuredHealth: number; expectedHealth: number }) {
+  async completeRepair(id: number) {
     return retryOrderTransaction(() => db.transaction(async (tx) => {
       const order = await tx.orm.Order.where((row) => row.id.eq(id)).include('vessel').first();
       if (!order) return { status: 404, body: { error: 'Order not found.' } } as const;
       if (order.status !== 'APPROVED' && order.status !== 'SENT') {
         return { status: 409, body: { error: 'Only an approved order awaiting repair can be completed.' } } as const;
       }
-      const { repairHealthLoss, repairFaultId } = order;
-      const restoresRecordedLoss = repairFaultId !== null && repairHealthLoss !== null;
-      let health: number;
-      if (restoresRecordedLoss) {
-        if (measurement) {
-          return { status: 400, body: { error: 'Complete this repair without a measurement to restore its recorded health loss.' } } as const;
-        }
-        health = Math.min(100, order.vessel.health + repairHealthLoss);
-      } else {
-        if (!measurement) {
-          return { status: 400, body: { error: 'This repair requires a measured health percentage and the previous reading.' } } as const;
-        }
-        if (order.vessel.health !== measurement.expectedHealth) {
-          return { status: 409, body: { error: 'Vessel health changed. Check the latest reading and try again.' } } as const;
-        }
-        health = measurement.measuredHealth;
-      }
-
       const completed = await tx.orm.Order.where((row, { fns }) =>
         fns.and(row.id.eq(id), row.status.eq(order.status))).update({ status: 'REPAIR_COMPLETED' });
       if (!completed) throw new Error('The order is no longer awaiting repair.');
 
-      if (restoresRecordedLoss) {
-        const unfinished = await tx.orm.Order.select('id').where((row, { fns }) => fns.and(
-          row.repairFaultId.eq(repairFaultId), row.status.neq('REPAIR_COMPLETED'),
-        )).first();
-        if (unfinished) {
-          return { status: 200, body: { vessel: order.vessel, orderId: completed.id, restorationPending: true } } as const;
-        }
+      const unfinished = await tx.orm.Order.select('id').where((row, { fns }) => fns.and(
+        row.vesselId.eq(order.vesselId), row.status.in(OPEN_ORDER_STATUSES),
+      )).first();
+      if (unfinished) {
+        return { status: 200, body: { vessel: order.vessel, orderId: completed.id, restorationPending: true } } as const;
       }
-      const vessel = await tx.orm.Vessel.where((row) => row.id.eq(order.vesselId)).update({ health });
+      const vessel = await tx.orm.Vessel.where((row) => row.id.eq(order.vesselId)).update({ health: 100 });
       if (!vessel) throw new Error('The linked vessel no longer exists.');
       return { status: 200, body: { vessel, orderId: completed.id, restorationPending: false } } as const;
+    }));
+  },
+
+  async recordMeasuredHealth(vesselId: number, measurement: { expectedHealth: number; measuredHealth: number }) {
+    return retryOrderTransaction(() => db.transaction(async (tx) => {
+      const pending = await tx.orm.Order.select('id').where((row, { fns }) => fns.and(
+        row.vesselId.eq(vesselId),
+        row.status.in(OPEN_ORDER_STATUSES),
+      )).first();
+      if (pending) return {
+        status: 409, body: { error: 'Finish the vessel’s open orders before recording hull health here.' },
+      } as const;
+
+      const vessel = await tx.orm.Vessel
+        .where((row, { fns }) => fns.and(row.id.eq(vesselId), row.health.eq(measurement.expectedHealth)))
+        .update({ health: measurement.measuredHealth });
+      if (vessel) return { status: 200, body: { vessel } } as const;
+      const existing = await tx.orm.Vessel.select('id').where(row => row.id.eq(vesselId)).first();
+      return existing
+        ? { status: 409, body: { error: 'Vessel health changed. Check the latest reading and try again.' } } as const
+        : { status: 404, body: { error: 'Vessel not found.' } } as const;
     }));
   },
 

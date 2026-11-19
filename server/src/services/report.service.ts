@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { db } from '../../prisma/db.js';
 import { calculateFaultDamage, type FaultSeverity } from './vessel.service.js';
-import { orderService, type ExtractedPartInput } from './order.service.js';
+import { orderService, type ExtractedPartInput, type RepairPort } from './order.service.js';
 import type { AiCredentials } from '../integrations/ai/aiProvider.js';
 
 export interface IncomingFaultReport {
@@ -9,6 +9,7 @@ export interface IncomingFaultReport {
   severity: FaultSeverity;
   faultSummary?: string;
   extractedParts: ExtractedPartInput[];
+  repairPort?: RepairPort;
 }
 
 export const reportService = {
@@ -19,6 +20,7 @@ export const reportService = {
       input.vesselId,
       input.extractedParts,
       credentials,
+      input.repairPort,
     );
 
     return db.transaction(async (tx) => {
@@ -35,10 +37,12 @@ export const reportService = {
         });
       if (!updatedVessel) throw new Error(`Vessel with ID ${input.vesselId} not found`);
 
-      // The draft validator uses each requested part at most once, across all suppliers.
-      const matchedParts = prepared.drafts.reduce((count, draft) => count + draft.matchedParts.length, 0);
+      // Each validated line retains the full requested quantity, including consolidated duplicates.
+      const requestedQuantity = input.extractedParts.reduce((sum, part) => sum + part.quantity, 0);
+      const matchedQuantity = prepared.drafts.reduce((sum, draft) =>
+        sum + draft.matchedParts.reduce((count, part) => count + part.quantity, 0), 0);
       const repairFaultId = randomUUID();
-      const repairHealthLoss = matchedParts === input.extractedParts.length
+      const repairHealthLoss = matchedQuantity === requestedQuantity
         ? damage.previousHealth - damage.newHealth
         : null;
       const draftedOrders = await orderService.persistPreparedDrafts(

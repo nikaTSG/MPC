@@ -38,11 +38,11 @@ geia sou peter
 - **Worldwide ports** toggles the keyless [UN OCHA copy of the World Port Index](https://gis.unocha.org/server/rest/services/Hosted/global_world_seaport_index_202511/FeatureServer). The selected destination’s marine forecast comes from [Open-Meteo Marine](https://open-meteo.com/en/docs/marine-weather-api).
 - **Repair ports** appear when you click a damaged vessel on the map. MPC compares its dimensions with World Port Index limits for repair ports within 500 nautical miles. Confirm safe access, repair capability, and berth availability with the port. [World Port Index specifications](https://arcgis.netl.doe.gov/server/rest/services/Hosted/CCS_EJ_SJ_Data/FeatureServer/17)
 - **Intake** accepts pasted email text or an uploaded PDF. The Python reader uses the provider, model, and key selected in AI settings. The TypeScript API stores the findings and prepares supplier drafts when it can match the vessel and parts. Chat can answer from the saved findings of recent documents.
-- **Demo fleet** adds two fictional vessels to each of the container, tanker, and general cargo categories. An ignored `server/prisma/dev.db.local` copy takes precedence over the checked-in `dev.db` in local development when the default database is configured. With the API running against the intended demo database, run `./node_modules/.bin/tsx scripts/seedDemoVessels.ts` from `server/`. The script calls the local vessels API, skips records it already added, and accepts an optional port argument (default 3001).
+- **Demo fleet** adds two fictional vessels to each of the container, tanker, and general cargo categories. On the first `npm --prefix client run dev`, MPC initializes ignored `server/prisma/dev.db.local` from the checked-in `dev.db` and applies the current contract only when Prisma previews additive changes; existing local databases and custom database URLs are left alone. With the API running against the intended demo database, run `./node_modules/.bin/tsx scripts/seedDemoVessels.ts` from `server/`. The script calls the local vessels API, skips records it already added, and accepts an optional port argument (default 3001).
 
 Saving intake on an existing installation requires the additive `ReaderIntake` table. From `server/`, preview the change to the local demo copy with `DATABASE_URL=file:./prisma/dev.db.local ./node_modules/.bin/prisma db update --dry-run`. Use the same explicit database URL when applying and verifying the reviewed update.
 
-Automatic repair recovery records the fault ID and the health points lost on its supplier drafts. Completing the last supplier order for a fully covered fault restores those points once, up to 100%. Orders without a recorded loss still take a measured reading. To upgrade an existing local copy, back it up and run these commands from `server/`.
+**Mark repair complete** restores the vessel to 100% hull health after its last open repair order is closed. Completed orders appear under **Completed repairs**. To upgrade an existing local copy, back it up and run these commands from `server/`.
 
 ```sh
 ./node_modules/.bin/prisma db update --dry-run --db "file:$PWD/prisma/dev.db.local"
@@ -50,7 +50,9 @@ Automatic repair recovery records the fault ID and the health points lost on its
 ./node_modules/.bin/prisma db verify --db "file:$PWD/prisma/dev.db.local"
 ```
 
-Use **Record email sent** in Procurement after sending each RFQ externally. MPC selects the closest repair port within 500 NM whose published limits fit the vessel. You can also choose a port on the route map. The final confirmation for the fault updates the vessel’s recorded destination and clears its old ETA. The map draws an estimated sea route where its route network covers the chosen port.
+Before generating an RFQ, MPC selects the closest repair port within 500 NM whose published limits fit the vessel. To choose a different port for the next RFQ, select it on the route map before generating the draft. Check the saved port and delivery instructions when approving the draft. Use **Record email sent** in Procurement after sending each RFQ externally. The final confirmation for an open repair diverts the vessel to the port stored with the RFQ and clears its old ETA. The map draws an estimated sea route where its route network covers that port.
+
+Use **Record measured hull health** in Procurement for a damaged vessel with no open orders. On the local demo, Procurement is available from the same-origin dashboard on loopback.
 
 ### Python reader setup
 

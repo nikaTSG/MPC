@@ -1,12 +1,13 @@
 import { useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { INTAKE_CATEGORIES, MAX_PDF_SIZE, mpcApi } from '../api/mpcApi';
-import type { AiSettings, IntakeReview, IntakeSource, Vessel } from '../api/mpcApi';
+import type { AiSettings, IntakeReview, IntakeSource, RepairPortSelection, Vessel } from '../api/mpcApi';
 
 interface AiPdfWorkflowProps {
   settings: AiSettings | null;
   vessels: Vessel[];
   blocked: boolean;
+  resolveRepairPort: (vessel: Vessel) => Promise<RepairPortSelection | undefined>;
   onBusyChange: (busy: boolean) => void;
   onDraftsCreated: () => Promise<void>;
   onViewDrafts: () => void;
@@ -31,28 +32,30 @@ function readBase64(file: File): Promise<string> {
   });
 }
 
-export default function AiPdfWorkflow({ settings, vessels, blocked, onBusyChange, onDraftsCreated, onViewDrafts }: AiPdfWorkflowProps) {
+export default function AiPdfWorkflow({ settings, vessels, blocked, resolveRepairPort, onBusyChange, onDraftsCreated, onViewDrafts }: AiPdfWorkflowProps) {
   const [file, setFile] = useState<File | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const [body, setBody] = useState('');
-  const [report, setReport] = useState<{ review: IntakeReview; source: IntakeSource } | null>(null);
+  const [review, setReview] = useState<IntakeReview | null>(null);
   const [vesselId, setVesselId] = useState<number | null>(null);
   const [action, setAction] = useState<'read' | 'process' | null>(null);
   const [error, setError] = useState('');
   const [draftCount, setDraftCount] = useState<number | null>(null);
   const busy = action !== null || blocked;
-  const findings = report?.review.extraction;
+  const findings = review?.extraction;
   const canAnalyze = Boolean(file || body.trim());
 
   function clearReview() {
-    setReport(null);
+    setReview(null);
     setDraftCount(null);
     setError('');
   }
 
-  async function processReview(settings: AiSettings, review: IntakeReview, id: number | null, source: IntakeSource) {
+  async function processReview(settings: AiSettings, review: IntakeReview, id: number | null) {
     setAction('process');
-    const result = await mpcApi.processIntake(settings, review, id, source);
+    const vessel = vessels.find((candidate) => candidate.id === id);
+    const repairPort = vessel && canDraft(review) ? await resolveRepairPort(vessel) : undefined;
+    const result = await mpcApi.processIntake(settings, review, id, repairPort);
     setDraftCount(result.draftCount);
     if (result.draftCount > 0) await onDraftsCreated();
   }
@@ -83,8 +86,8 @@ export default function AiPdfWorkflow({ settings, vessels, blocked, onBusyChange
         : vesselName?.trim().toLowerCase() === vessel.name.trim().toLowerCase());
       const id = matches.length === 1 ? matches[0].id : null;
       setVesselId(id);
-      setReport({ review, source });
-      if (id !== null || !canDraft(review)) await processReview(settings, review, id, source);
+      setReview(review);
+      if (id !== null || !canDraft(review)) await processReview(settings, review, id);
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : 'Could not process this document.');
     } finally {
@@ -94,11 +97,11 @@ export default function AiPdfWorkflow({ settings, vessels, blocked, onBusyChange
   }
 
   async function retryOrProcessReview() {
-    if (!report || !settings || busy || draftCount !== null || (canDraft(report.review) && vesselId === null)) return;
+    if (!review || !settings || busy || draftCount !== null || (canDraft(review) && vesselId === null)) return;
     onBusyChange(true);
     setError('');
     try {
-      await processReview(settings, report.review, vesselId, report.source);
+      await processReview(settings, review, vesselId);
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : 'Could not process this document.');
     } finally {
@@ -142,7 +145,7 @@ export default function AiPdfWorkflow({ settings, vessels, blocked, onBusyChange
       </form>
       {!settings && <p className="pdf-detail">Add your API key in <a href="#ai-settings">AI settings</a>.</p>}
       {error && <p className="dashboard-error" role="alert">{error}</p>}
-      {report && findings && (
+      {review && findings && (
         <div className="pdf-result" aria-label="Extracted findings">
           <h3>{INTAKE_CATEGORIES[findings.category]}</h3>
           <p>{findings.summary}</p>
@@ -176,11 +179,11 @@ export default function AiPdfWorkflow({ settings, vessels, blocked, onBusyChange
             </select>
           </label>
           <div className="pdf-actions">
-            {canDraft(report.review) && vesselId === null && (
+            {canDraft(review) && vesselId === null && (
               <p className="pdf-detail">Select the vessel to prepare supplier drafts.</p>
             )}
             {draftCount === null && !busy && (
-              <button type="button" className="dashboard-button" disabled={!settings || (canDraft(report.review) && vesselId === null)}
+              <button type="button" className="dashboard-button" disabled={!settings || (canDraft(review) && vesselId === null)}
                 onClick={() => void retryOrProcessReview()}>
                 {error ? 'Retry processing' : 'Process report'}
               </button>
@@ -188,7 +191,7 @@ export default function AiPdfWorkflow({ settings, vessels, blocked, onBusyChange
             {draftCount !== null && (
               <p className="pdf-detail" role="status">
                 {draftCount > 0 ? `${draftCount} ${draftCount === 1 ? 'draft' : 'drafts'} awaiting approval.`
-                  : canDraft(report.review) ? 'Findings saved. No matching suppliers.'
+                  : canDraft(review) ? 'Findings saved. No matching suppliers.'
                     : 'Findings saved. No supplier drafts created.'}
               </p>
             )}

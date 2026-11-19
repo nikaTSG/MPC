@@ -161,18 +161,47 @@ function deriveSectionsFromVessel(vessel: Vessel | null): Record<SectionId, Sect
   };
 }
 
-function RepairProgress({ orders, loading, error, vessels, repairPorts, onRecordSend, onComplete }: {
+type HealthMeasurement = { measuredHealth: number; expectedHealth: number };
+
+function RepairHealthForm({ vessel, busy, saveLabel, onSave, onCancel }: {
+  vessel: Vessel;
+  busy: boolean;
+  saveLabel: string;
+  onSave: (measurement: HealthMeasurement) => void;
+  onCancel: () => void;
+}) {
+  return (
+    <form className="repair-health-entry" onSubmit={(event) => {
+      event.preventDefault();
+      const value = new FormData(event.currentTarget).get('measuredHealth');
+      if (typeof value === 'string' && value.trim()) {
+        onSave({ measuredHealth: Number(value), expectedHealth: vessel.health });
+      }
+    }}>
+      <label>
+        Measured hull health (%)
+        <input name="measuredHealth" type="number" min={0} max={100} step={1} required autoFocus disabled={busy} />
+      </label>
+      <div className="order-actions">
+        <button type="submit" className="dashboard-button primary-button" disabled={busy}>{busy ? 'Saving…' : saveLabel}</button>
+        <button type="button" className="dashboard-button" disabled={busy} onClick={onCancel}>Cancel</button>
+      </div>
+    </form>
+  );
+}
+
+function RepairProgress({ orders, loading, error, vessels, onRecordSend, onComplete }: {
   orders: OrderDraft[];
   loading: boolean;
   error: string | null;
   vessels: Vessel[];
-  repairPorts: Record<number, RepairPortSelection>;
-  onRecordSend: (id: number, repairPort?: RepairPortSelection) => Promise<void>;
-  onComplete: (id: number, measurement?: { measuredHealth: number; expectedHealth: number }) => Promise<void>;
+  onRecordSend: (id: number) => Promise<void>;
+  onComplete: (id: number) => Promise<void>;
 }) {
-  const [editing, setEditing] = useState<number | null>(null);
   const [saving, setSaving] = useState<number | null>(null);
   const [saveError, setSaveError] = useState<{ orderId: number; message: string } | null>(null);
+  const completed = orders.filter((order) => order.status === 'REPAIR_COMPLETED');
+  const open = orders.filter((order) => order.status !== 'REPAIR_COMPLETED');
 
   async function runOrderAction(orderId: number, action: () => Promise<void>, fallback: string) {
     if (saving !== null) return;
@@ -180,7 +209,6 @@ function RepairProgress({ orders, loading, error, vessels, repairPorts, onRecord
     setSaveError(null);
     try {
       await action();
-      setEditing(null);
     } catch (failure) {
       setSaveError({ orderId, message: failure instanceof Error ? failure.message : fallback });
     } finally {
@@ -188,73 +216,48 @@ function RepairProgress({ orders, loading, error, vessels, repairPorts, onRecord
     }
   }
 
-  function finishRepair(orderId: number, measurement?: { measuredHealth: number; expectedHealth: number }) {
-    return runOrderAction(orderId, () => onComplete(orderId, measurement), 'Could not save the repair.');
-  }
-
-  function save(event: React.FormEvent<HTMLFormElement>, order: OrderDraft, vessel: Vessel) {
-    event.preventDefault();
-    const value = new FormData(event.currentTarget).get('measuredHealth');
-    if (typeof value !== 'string' || !value.trim()) return;
-    void finishRepair(order.id, { measuredHealth: Number(value), expectedHealth: vessel.health });
+  function renderRepair(order: OrderDraft) {
+    const vessel = vessels.find(({ id }) => id === order.vesselId);
+    const busy = saving === order.id;
+    return (
+      <article key={order.id} className="order-card">
+        <header className="order-header">
+          <div>
+            <h3>{order.subject}</h3>
+            <p className="order-meta">{vessel?.name ?? order.vessel?.name}{vessel && ` · Current hull health ${vessel.health}%`}</p>
+            {order.repairPort && <p className="order-meta">Repair port · {order.repairPort.name}</p>}
+          </div>
+          <div className="order-actions">
+            {order.externalSentAt ? <span className="repair-job-state">Email sent</span> : (
+              <button type="button" className="dashboard-button" disabled={saving !== null} onClick={() => {
+                void runOrderAction(order.id, () => onRecordSend(order.id), 'Could not record the external send.');
+              }}>Record email sent</button>
+            )}
+            {order.status !== 'REPAIR_COMPLETED' && (
+              <button type="button" className="dashboard-button" disabled={saving !== null} onClick={() => {
+                void runOrderAction(order.id, () => onComplete(order.id), 'Could not save the repair.');
+              }}>{busy ? 'Saving…' : 'Mark repair complete'}</button>
+            )}
+          </div>
+        </header>
+        {saveError?.orderId === order.id && <p className="dashboard-error" role="alert">{saveError.message}</p>}
+      </article>
+    );
   }
 
   return (
     <section className="repair-job-list" aria-labelledby="repair-progress">
       <h2 id="repair-progress">Repair progress</h2>
       {error && <p className="dashboard-error" role="alert">{error}</p>}
-      {loading && orders.length === 0 ? <p role="status">Loading repairs…</p> : !error && orders.length === 0 &&
-        <p className="dashboard-empty">Approved orders appear here.</p>}
-      {orders.map((order) => {
-        const vessel = vessels.find(({ id }) => id === order.vesselId);
-        const complete = order.status === 'REPAIR_COMPLETED';
-        const automatic = order.repairHealthLoss != null;
-        const repairPort = order.repairPort ?? repairPorts[order.vesselId];
-        const busy = saving === order.id;
-        return (
-          <article key={order.id} className="order-card">
-            <header className="order-header">
-              <div>
-                <h3>{order.subject}</h3>
-                <p className="order-meta">{vessel?.name ?? order.vessel?.name}{vessel && ` · Current hull health ${vessel.health}%`}</p>
-                {repairPort && <p className="order-meta">Repair port · {repairPort.name}</p>}
-              </div>
-              <div className="order-actions">
-                {order.externalSentAt ? <span className="repair-job-state">Email sent</span> : (
-                  <button type="button" className="dashboard-button" disabled={saving !== null} onClick={() => {
-                    void runOrderAction(order.id, () => onRecordSend(order.id, repairPort), 'Could not record the external send.');
-                  }}>Record email sent</button>
-                )}
-                {complete ? <span className="repair-job-state">Repair complete</span> : editing !== order.id && (
-                  <button type="button" className="dashboard-button" disabled={(!vessel && !automatic) || saving !== null} onClick={() => {
-                    if (automatic) {
-                      void finishRepair(order.id);
-                      return;
-                    }
-                    setSaveError(null);
-                    setEditing(order.id);
-                  }}>{busy ? 'Saving…' : 'Mark repair complete'}</button>
-                )}
-              </div>
-            </header>
-            {!complete && editing === order.id && vessel && (
-              <form className="repair-health-entry" onSubmit={(event) => void save(event, order, vessel)}>
-                <label>
-                  Measured hull health (%)
-                  <input name="measuredHealth" type="number" min={0} max={100} step={1} required autoFocus disabled={saving !== null} />
-                </label>
-                <div className="order-actions">
-                  <button type="submit" className="dashboard-button primary-button" disabled={saving !== null}>
-                    {busy ? 'Saving…' : 'Save repair and health'}
-                  </button>
-                  <button type="button" className="dashboard-button" disabled={saving !== null} onClick={() => setEditing(null)}>Cancel</button>
-                </div>
-              </form>
-            )}
-            {saveError?.orderId === order.id && <p className="dashboard-error" role="alert">{saveError.message}</p>}
-          </article>
-        );
-      })}
+      {loading && orders.length === 0 ? <p role="status">Loading repairs…</p> : !error && open.length === 0 &&
+        <p className="dashboard-empty">No open repairs.</p>}
+      {open.map(renderRepair)}
+      {completed.length > 0 && (
+        <details className="completed-repairs">
+          <summary>Completed repairs ({completed.length})</summary>
+          <div className="order-list">{completed.map(renderRepair)}</div>
+        </details>
+      )}
     </section>
   );
 }
@@ -303,6 +306,8 @@ export const ShipDashboard: React.FC = () => {
   const [procurementNotice, setProcurementNotice] = useState('');
   const [repairPortChoices, setRepairPortChoices] = useState<Record<number, RepairPortSelection>>({});
   const [procurementError, setProcurementError] = useState('');
+  const [measuringVesselId, setMeasuringVesselId] = useState<number | null>(null);
+  const [savingMeasuredHealth, setSavingMeasuredHealth] = useState(false);
   const [simulatingFault, setSimulatingFault] = useState(false);
   const [lastSimulatedFault, setLastSimulatedFault] = useState<{
     vesselId: number; vesselName: string; previousHealth: number; newHealth: number; draftCount: number;
@@ -400,13 +405,22 @@ export const ShipDashboard: React.FC = () => {
     }
   }
 
+  async function resolveRepairPort(vessel: Vessel): Promise<RepairPortSelection | undefined> {
+    if (repairPortChoices[vessel.id]) return repairPortChoices[vessel.id];
+    if (vessel.latitude == null || vessel.longitude == null) return undefined;
+    const directory = await getRepairPorts(AbortSignal.timeout(18_000)).catch(() => []);
+    const nearest = findNearbyRepairPorts(vessel, directory).fits[0];
+    if (!nearest) return undefined;
+    return { code: nearest.code, name: nearest.name, latitude: nearest.coords[0], longitude: nearest.coords[1] };
+  }
+
   const handleSimulateFault = async () => {
     if (!selectedVessel || !aiSettings || simulatingFault || pdfBusy) return;
     setSimulationError('');
     try {
       setSimulatingFault(true);
       const { healthUpdate, draftedOrders } = await reportVesselFault({
-        ...SIMULATED_FAULT, vesselId: selectedVessel.id,
+        ...SIMULATED_FAULT, vesselId: selectedVessel.id, repairPort: await resolveRepairPort(selectedVessel),
       }, aiSettings);
       setLastSimulatedFault({
         vesselId: selectedVessel.id, vesselName: selectedVessel.name,
@@ -429,10 +443,13 @@ export const ShipDashboard: React.FC = () => {
   };
 
   const handleSaveDraft = async (id: number) => {
+    setProcurementError('');
     try {
       setActionBusyId(id);
       await updateOrderDraft(id, { subject: draftSubject, body: draftBody });
       setEditingOrderId(null);
+    } catch (failure) {
+      setProcurementError(failure instanceof Error ? failure.message : 'Could not save the draft.');
     } finally {
       setActionBusyId(null);
     }
@@ -454,12 +471,12 @@ export const ShipDashboard: React.FC = () => {
     }
   };
 
-  const handleCompleteRepair = async (id: number, measurement?: { measuredHealth: number; expectedHealth: number }) => {
+  const handleCompleteRepair = async (id: number) => {
     try {
-      const { vessel, restorationPending } = await mpcApi.completeRepair(id, measurement);
+      const { vessel, restorationPending } = await mpcApi.completeRepair(id);
       applyVessel(vessel);
       setProcurementNotice(restorationPending
-        ? `${vessel.name} repair complete. Hull health will update when the other repairs for this fault are complete.`
+        ? `${vessel.name} repair complete. Hull health will reach 100% after its remaining repairs are complete.`
         : `${vessel.name} repair complete. Hull health is ${vessel.health}%.`);
       await refetchRepairs();
     } catch (failure) {
@@ -468,21 +485,9 @@ export const ShipDashboard: React.FC = () => {
     }
   };
 
-  const handleRecordSend = async (id: number, repairPort?: RepairPortSelection) => {
+  const handleRecordSend = async (id: number) => {
     try {
-      let port = repairPort;
-      const order = repairs.find((entry) => entry.id === id);
-      const ship = vessels.find((entry) => entry.id === order?.vesselId);
-      if (!port && ship?.latitude != null && ship.longitude != null) {
-        const directory = await getRepairPorts(AbortSignal.timeout(18_000)).catch(() => {
-          throw new Error('Repair port data is unavailable. Try recording the send again.');
-        });
-        const nearest = findNearbyRepairPorts(ship, directory).fits[0];
-        if (nearest) {
-          port = { code: nearest.code, name: nearest.name, latitude: nearest.coords[0], longitude: nearest.coords[1] };
-        }
-      }
-      const { vessel, diverted, dispatchPending } = await mpcApi.recordExternalSend(id, port);
+      const { vessel, diverted, dispatchPending } = await mpcApi.recordExternalSend(id);
       applyVessel(vessel);
       if (diverted) {
         setRepairPortChoices((current) => {
@@ -494,12 +499,34 @@ export const ShipDashboard: React.FC = () => {
       } else {
         setProcurementNotice(dispatchPending
           ? 'External send recorded. Waiting for the other RFQs for this fault.'
-          : port ? 'External send recorded.' : 'External send recorded. No compatible repair port was found.');
+          : 'External send recorded.');
       }
     } finally {
       await refetchRepairs();
     }
   };
+
+  async function handleMeasuredHealth(vessel: Vessel, measurement: HealthMeasurement) {
+    setSavingMeasuredHealth(true);
+    setProcurementError('');
+    setProcurementNotice('');
+    try {
+      const result = await mpcApi.recordMeasuredHealth(vessel.id, measurement);
+      applyVessel(result.vessel);
+      setMeasuringVesselId(null);
+      setProcurementNotice(`${vessel.name} hull health recorded at ${result.vessel.health}%.`);
+    } catch (failure) {
+      setProcurementError(failure instanceof Error ? failure.message : 'Could not record hull health.');
+      await Promise.all([refetchVessels(), refetchRepairs(), refetchOrders()]);
+    } finally {
+      setSavingMeasuredHealth(false);
+    }
+  }
+
+  const canRecordMeasuredHealth = selectedVessel && selectedVessel.health < 100 &&
+    !ordersLoading && !repairsLoading && !ordersError && !repairsError &&
+    !orders.some((order) => order.vesselId === selectedVessel.id) &&
+    !repairs.some((order) => order.vesselId === selectedVessel.id && order.status !== 'REPAIR_COMPLETED');
 
   const faultNotice = lastSimulatedFault && (
     <div className="dashboard-notice simulated-fault" role="status" aria-label="Simulated fault details">
@@ -644,6 +671,7 @@ export const ShipDashboard: React.FC = () => {
             settings={aiSettings}
             vessels={vessels}
             blocked={simulatingFault}
+            resolveRepairPort={resolveRepairPort}
             onBusyChange={setPdfBusy}
             onDraftsCreated={refetchOrders}
             onViewDrafts={() => setActiveTab('procurement')}
@@ -656,8 +684,27 @@ export const ShipDashboard: React.FC = () => {
             {procurementError && <p className="dashboard-error" role="alert">{procurementError}</p>}
             {procurementNotice && <p className="dashboard-notice" role="status">{procurementNotice}</p>}
             <RepairProgress orders={repairs} loading={repairsLoading} error={repairsError}
-              vessels={vessels} repairPorts={repairPortChoices} onRecordSend={handleRecordSend}
+              vessels={vessels} onRecordSend={handleRecordSend}
               onComplete={handleCompleteRepair} />
+            {canRecordMeasuredHealth && selectedVessel && (
+              <div className="order-card">
+                <div className="order-header">
+                  <div>
+                    <h3>{selectedVessel.name}</h3>
+                    <p className="order-meta">Current hull health {selectedVessel.health}%</p>
+                  </div>
+                  {measuringVesselId !== selectedVessel.id && (
+                    <button type="button" className="dashboard-button" disabled={savingMeasuredHealth}
+                      onClick={() => setMeasuringVesselId(selectedVessel.id)}>Record measured hull health</button>
+                  )}
+                </div>
+                {measuringVesselId === selectedVessel.id && (
+                  <RepairHealthForm vessel={selectedVessel} busy={savingMeasuredHealth} saveLabel="Save hull health"
+                    onSave={(measurement) => { void handleMeasuredHealth(selectedVessel, measurement); }}
+                    onCancel={() => setMeasuringVesselId(null)} />
+                )}
+              </div>
+            )}
             {lastPreviewUrl && (
               <p className="dashboard-notice">
                 <a href={lastPreviewUrl} target="_blank" rel="noreferrer">Open email preview ↗</a>
@@ -689,6 +736,7 @@ export const ShipDashboard: React.FC = () => {
                               <span>{order.supplier.name} ({order.supplier.email})</span>
                             )}
                           </div>
+                          {order.repairPort && <p className="order-meta">Repair port · {order.repairPort.name}</p>}
                         </div>
                         <div className="order-actions">
                           {isEditing ? (

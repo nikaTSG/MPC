@@ -1,6 +1,9 @@
 import base64
 import io
 import json
+import re
+import unicodedata
+from collections.abc import Iterator
 
 import httpx
 from pypdf import PdfReader
@@ -33,7 +36,7 @@ class ReaderError(Exception):
         self.status = status
 
 
-def read_pdf(data: bytes) -> bytes:
+def read_pdf(data: bytes) -> PdfReader:
     if len(data) > MAX_PDF_BYTES:
         raise ReaderError(413, "The PDF must be at most 5 MiB.")
     if not data.startswith(b"%PDF-"):
@@ -44,14 +47,57 @@ def read_pdf(data: bytes) -> bytes:
             raise ReaderError(400, "Upload an unlocked PDF with at least one page.")
     except (PyPdfError, ValueError):
         raise ReaderError(400, "The uploaded file is not a readable PDF.") from None
-    return data
+    return document
+
+
+def source_text(request: ExtractionRequest, document: PdfReader | None) -> Iterator[str]:
+    yield from (request.subject, request.sender, request.body)
+    if document:
+        for page in document.pages:
+            try:
+                yield page.extract_text() or ""
+            except (PyPdfError, KeyError, IndexError, NotImplementedError, TypeError, ValueError):
+                # A scan or unreadable text layer can still supply a visual summary.
+                continue
+
+
+def normalize_identifier(text: str) -> str:
+    text = unicodedata.normalize("NFKC", text).casefold().replace("‐", "-")
+    return " ".join(text.split())
+
+
+def ground_identifiers(result: Extraction, sources: Iterator[str]) -> Extraction:
+    identifiers = {value for value in [result.vesselName, result.imo, *(p.partNumber for p in result.parts)] if value}
+    # Match a whole identifier. Internal separators count as part of the token,
+    # while surrounding punctuation (e.g. a sentence-ending period) is allowed.
+    patterns = {}
+    for value in identifiers:
+        literal = re.escape(normalize_identifier(value))
+        if value == result.imo:
+            literal = rf"(?:imo\s*)?{literal}"
+        patterns[value] = re.compile(rf"(?<!\w)(?<!\w[./+\-]){literal}(?!\w|[./+\-]\w)")
+    missing = set(patterns)
+    for source in sources:
+        normalized = normalize_identifier(source)
+        missing = {value for value in missing if not patterns[value].search(normalized)}
+        if not missing:
+            break
+    if result.vesselName in missing:
+        result.vesselName = None
+    if result.imo in missing:
+        result.imo = None
+    for part in result.parts:
+        if part.partNumber in missing:
+            part.partNumber = None
+    return result
 
 
 async def extract(request: ExtractionRequest, api_key: str, pdf: bytes | None = None) -> Extraction:
     if pdf is None and not (request.subject.strip() or request.body.strip()):
         raise ReaderError(400, "Enter an email subject or body, or upload a PDF.")
     source = json.dumps(request.model_dump(exclude={"provider", "model"}), ensure_ascii=False)
-    encoded_pdf = base64.b64encode(read_pdf(pdf)).decode("ascii") if pdf is not None else None
+    document = read_pdf(pdf) if pdf is not None else None
+    encoded_pdf = base64.b64encode(pdf).decode("ascii") if pdf is not None else None
 
     async with httpx.AsyncClient(timeout=60, trust_env=False, follow_redirects=False) as client:
         try:
@@ -61,7 +107,8 @@ async def extract(request: ExtractionRequest, api_key: str, pdf: bytes | None = 
                 text = await _gemini(client, request, api_key, source, encoded_pdf)
             else:
                 text = await _anthropic(client, request, api_key, source, encoded_pdf)
-            return Extraction.model_validate_json(text)
+            result = Extraction.model_validate_json(text)
+            return ground_identifiers(result, source_text(request, document))
         except httpx.HTTPStatusError as error:
             status = error.response.status_code
             messages = {

@@ -3,7 +3,7 @@ import cors from 'cors';
 import { db } from '../prisma/db.js';
 import { requestAiText, streamAiText } from './integrations/ai/aiProvider.js';
 import apiRoutes from './routes/index.js';
-import { createAiRouter } from './routes/ai.route.js';
+import { createAiRouter, isAuthorizedBrowserPost, isLocalBrowserRequest } from './routes/ai.route.js';
 import { orderService } from './services/order.service.js';
 import { reportService } from './services/report.service.js';
 import { processReviewedIntake, recentReviewedIntakes, saveReviewedIntake } from './services/intake.service.js';
@@ -11,6 +11,19 @@ import { processReviewedIntake, recentReviewedIntakes, saveReviewedIntake } from
 
 const app = express();
 
+app.use('/api/v1/orders', (request, response, next) => {
+  const site = request.get('sec-fetch-site');
+  const read = request.method === 'GET' || request.method === 'HEAD';
+  if (
+    !isLocalBrowserRequest(request) ||
+    (site && site !== 'same-origin' && site !== 'none') ||
+    ((!read || request.get('origin') !== undefined) && !isAuthorizedBrowserPost(request))
+  ) {
+    response.status(403).json({ error: 'Procurement is available only from the local MPC dashboard.' });
+    return;
+  }
+  next();
+});
 app.use(cors());
 app.use('/api/v1/ai', createAiRouter({
   requestAiText,
@@ -18,8 +31,8 @@ app.use('/api/v1/ai', createAiRouter({
   saveReviewedIntake,
   processReviewedIntake,
   recentReviewedIntakes,
-  generateDrafts: (vesselId, extractedParts, credentials) =>
-    orderService.generateDraftsFromReport(vesselId, extractedParts, credentials),
+  generateDrafts: (vesselId, extractedParts, credentials, repairPort) =>
+    orderService.generateDraftsFromReport(vesselId, extractedParts, credentials, repairPort),
   processFaultReport: (input, credentials) => reportService.processFaultReport(input, credentials),
 }));
 app.use(express.json());

@@ -29,11 +29,6 @@ export interface ExtractedPart {
   notes?: string | null;
 }
 
-export interface PdfReport {
-  summary: string;
-  parts: ExtractedPart[];
-}
-
 export const INTAKE_CATEGORIES = {
   DEFECT_REPORT: 'Defect report',
   VESSEL_UPDATE: 'Vessel update',
@@ -49,6 +44,11 @@ export interface IntakeSource {
 
 export interface IntakeReview {
   intakeId: string;
+  reviewReceipt: string;
+  sender: string | null;
+  subject: string | null;
+  filename: string | null;
+  hasEmail: boolean;
   extraction: {
     category: keyof typeof INTAKE_CATEGORIES;
     vesselName: string | null;
@@ -58,15 +58,6 @@ export interface IntakeReview {
     parts: { partNumber: string | null; partName: string; quantity: number | null; notes: string | null }[];
     facts: { label: string; value: string }[];
   };
-}
-
-export interface ProcessedIntake {
-  id: string;
-  vesselId: number | null;
-  category: string;
-  subject: string | null;
-  filename: string | null;
-  createdAt: string;
 }
 
 export interface RepairPortSelection {
@@ -121,6 +112,7 @@ export interface FaultReportPayload {
   severity: FaultSeverity;
   faultSummary?: string;
   extractedParts: ExtractedPart[];
+  repairPort?: RepairPortSelection;
 }
 
 interface FaultReportResult {
@@ -137,7 +129,6 @@ export interface OrderDraft {
   status: 'PENDING_APPROVAL' | 'APPROVED' | 'SENT' | 'REJECTED' | 'REPAIR_COMPLETED';
   externalSentAt?: string | null;
   repairPort?: RepairPortSelection | null;
-  repairHealthLoss?: number | null;
   items: { partNumber: string; partName: string; quantity: number; notes?: string }[];
   vessel?: { id: number; name: string; imo: string };
   supplier?: { id: number; name: string; email: string; portLocation?: string };
@@ -174,7 +165,7 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   return data as T;
 }
 
-function requestAi<T>(path: 'pdf' | 'drafts' | 'report' | 'intake' | 'intake/process', settings: AiSettings, payload: object) {
+function requestAi<T>(path: 'report' | 'intake' | 'intake/process', settings: AiSettings, payload: object) {
   return request<T>(`/api/v1/ai/${path}`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${settings.apiKey}` },
@@ -270,24 +261,13 @@ export const mpcApi = {
 
   streamAiMessage,
 
-  readPdf: (settings: AiSettings, filename: string, fileData: string) =>
-    requestAi<PdfReport>('pdf', settings, { filename, fileData }),
-
   readIntake: (settings: AiSettings, source: IntakeSource & { body?: string; fileData?: string }) =>
     requestAi<IntakeReview>('intake', settings, source),
 
-  processIntake: (settings: AiSettings, review: IntakeReview, vesselId: number | null, source: IntakeSource) =>
+  processIntake: (settings: AiSettings, review: IntakeReview, vesselId: number | null, repairPort?: RepairPortSelection) =>
     requestAi<{ id: string; vesselId: number | null; category: string; draftCount: number }>(
-      'intake/process', settings, { ...review, vesselId, ...source },
+      'intake/process', settings, { ...review, vesselId, repairPort },
     ),
-
-  getRecentIntakes: (signal: AbortSignal) =>
-    request<{ records: ProcessedIntake[]; latestEmail: ProcessedIntake | null }>('/api/v1/ai/intake/recent', {
-      method: 'POST', body: '{}', cache: 'no-store', signal,
-    }),
-
-  generateAiDrafts: (settings: AiSettings, vesselId: number, extractedParts: ExtractedPart[]) =>
-    requestAi<OrderDraft[]>('drafts', settings, { vesselId, extractedParts }),
 
   getVessels: async (): Promise<Vessel[]> => {
     const raw = await request<unknown>('/api/v1/vessels');
@@ -327,16 +307,21 @@ export const mpcApi = {
       method: 'POST',
     }),
 
-  recordExternalSend: (id: number, repairPort?: RepairPortSelection) =>
+  recordExternalSend: (id: number) =>
     request<{ vessel: Vessel; diverted: boolean; dispatchPending: boolean }>(`/api/v1/orders/${id}/record-send`, {
       method: 'POST',
-      body: JSON.stringify({ repairPort }),
+      body: '{}',
     }),
 
-  completeRepair: (id: number, measurement?: { measuredHealth: number; expectedHealth: number }) =>
+  completeRepair: (id: number) =>
     request<{ orderId: number; vessel: Vessel; restorationPending?: boolean }>(`/api/v1/orders/${id}/complete-repair`, {
       method: 'POST',
-      body: JSON.stringify(measurement ?? {}),
+      body: '{}',
+    }),
+
+  recordMeasuredHealth: (vesselId: number, measurement: { measuredHealth: number; expectedHealth: number }) =>
+    request<{ vessel: Vessel }>(`/api/v1/orders/vessel/${vesselId}/measured-health`, {
+      method: 'POST', body: JSON.stringify(measurement),
     }),
 
   updateOrderDraft: (id: number, updates: { subject?: string; body?: string }) =>

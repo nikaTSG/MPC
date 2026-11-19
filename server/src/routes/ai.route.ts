@@ -1,5 +1,4 @@
 import express, { Router, type Request, type Response } from 'express';
-import { randomUUID } from 'node:crypto';
 import {
   AI_MODELS,
   AiProviderError,
@@ -8,14 +7,14 @@ import {
   type AiProvider,
   type AiRequest,
 } from '../integrations/ai/aiProvider.js';
-import type { ExtractedPartInput } from '../services/order.service.js';
+import { readRepairPort, type ExtractedPartInput, type RepairPort } from '../services/order.service.js';
 import type { IncomingFaultReport } from '../services/report.service.js';
 import type { FaultSeverity } from '../services/vessel.service.js';
 import {
-  groundTextIdentifiers,
+  issueIntakeReview,
   readDocumentWithPython,
-  readIntakeExtraction,
   readIntakeSource,
+  verifyIntakeReview,
   type ReviewedIntake,
 } from '../integrations/ai/documentReader.js';
 import type { IntakeProcessResult, IntakeSaveResult, RecentIntakeResult } from '../services/intake.service.js';
@@ -64,7 +63,8 @@ export interface AiRouteDependencies {
   generateDrafts(
     vesselId: number,
     extractedParts: ExtractedPartInput[],
-    credentials: AiCredentials
+    credentials: AiCredentials,
+    repairPort?: RepairPort,
   ): Promise<unknown>;
   processFaultReport(
     input: IncomingFaultReport,
@@ -149,6 +149,20 @@ export function isAuthorizedBrowserPost(request: Request): boolean {
 function isLoopbackOriginHost(origin: URL): boolean {
   const hostname = origin.hostname.toLowerCase().replace(/\.$/, '');
   return hostname === 'localhost' || hostname.endsWith('.localhost') || isLoopbackAddress(hostname);
+}
+
+export function isLocalBrowserRequest(request: Request): boolean {
+  const host = request.get('host');
+  const peer = request.socket.remoteAddress;
+  if (!host || !peer || !isLoopbackAddress(peer) || !forwardedForIsLoopback(request)) return false;
+  try {
+    const authority = new URL(`http://${host}`);
+    return authority.username === '' && authority.password === '' && authority.pathname === '/' &&
+      authority.search === '' && authority.hash === '' && isLoopbackOriginHost(authority) &&
+      !/[\s/@\\?#]/.test(host);
+  } catch {
+    return false;
+  }
 }
 
 function readCredentials(request: Request): AiCredentials | null {
@@ -263,17 +277,16 @@ function readPdf(body: Record<string, unknown>): { pdf: NonNullable<AiRequest['p
 }
 
 function readReviewedIntake(body: unknown): ReviewedIntake | { error: string } {
-  if (!isRecord(body) || typeof body.intakeId !== 'string' ||
-      !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(body.intakeId)) {
-    return { error: 'A valid intake review ID is required.' };
-  }
-  const source = readIntakeSource(body);
-  const extraction = readIntakeExtraction(body.extraction);
+  if (!isRecord(body)) return { error: 'A document review is required.' };
+  const review = verifyIntakeReview(body);
+  if ('error' in review) return review;
   const vesselId = body.vesselId ?? null;
-  if (!source || !extraction || !(vesselId === null || (typeof vesselId === 'number' && Number.isSafeInteger(vesselId) && vesselId > 0))) {
-    return { error: 'Invalid reviewed document fields or vessel selection.' };
+  if (vesselId !== null && !(typeof vesselId === 'number' && Number.isSafeInteger(vesselId) && vesselId > 0)) {
+    return { error: 'Select a valid vessel.' };
   }
-  return { intakeId: body.intakeId.toLowerCase(), vesselId, extraction, ...source };
+  const repairPort = body.repairPort === undefined ? undefined : readRepairPort(body.repairPort);
+  if (repairPort === null) return { error: 'Select a valid repair port.' };
+  return { ...review, vesselId, ...(repairPort && { repairPort }) };
 }
 
 function providerFailure(error: unknown): error is AiProviderError {
@@ -500,18 +513,14 @@ export function createAiRouter(dependencies: AiRouteDependencies) {
     try {
       const result = await readDocumentWithPython(credentials, source, message, attachment?.pdf);
       if ('error' in result) return response.status(result.status).json({ error: result.error });
-      const { extraction } = result;
-      const reviewedSource = [source.subject, source.sender, message].filter(Boolean).join('\n');
-      return response.json({
-        intakeId: randomUUID(),
-        extraction: attachment ? extraction : groundTextIdentifiers(extraction, reviewedSource),
-      });
+      const hasEmail = Boolean(source.sender || source.subject || message.trim());
+      return response.json(issueIntakeReview(source, hasEmail, result.extraction));
     } catch (error) {
       return aiRequestFailureResponse(response, error);
     }
   });
 
-  router.post('/intake/save', expressJson('128kb'), async (request, response) => {
+  router.post('/intake/save', expressJson('512kb'), async (request, response) => {
     const input = readReviewedIntake(request.body);
     if ('error' in input) return response.status(400).json(input);
     try {
@@ -522,7 +531,7 @@ export function createAiRouter(dependencies: AiRouteDependencies) {
     }
   });
 
-  router.post('/intake/process', expressJson('128kb'), async (request, response) => {
+  router.post('/intake/process', expressJson('512kb'), async (request, response) => {
     const credentials = readCredentials(request);
     if (!credentials) {
       return response.status(request.get('authorization') ? 400 : 401).json({ error: 'Valid provider, model, and bearer key are required' });
@@ -586,12 +595,14 @@ export function createAiRouter(dependencies: AiRouteDependencies) {
       return response.status(request.get('authorization') ? 400 : 401).json({ error: 'Valid provider, model, and bearer key are required' });
     }
     const extractedParts = readExtractedParts(body.extractedParts, false);
+    const repairPort = body.repairPort === undefined ? undefined : readRepairPort(body.repairPort);
+    if (repairPort === null) return response.status(400).json({ error: 'Select a valid repair port.' });
     if (!Number.isSafeInteger(body.vesselId) || (body.vesselId as number) <= 0 || !extractedParts) {
       return response.status(400).json({ error: 'Valid vesselId and one to 25 extractedParts are required' });
     }
 
     try {
-      const drafts = await dependencies.generateDrafts(body.vesselId as number, extractedParts, credentials);
+      const drafts = await dependencies.generateDrafts(body.vesselId as number, extractedParts, credentials, repairPort);
       return response.status(201).json(drafts);
     } catch (error) {
       return serviceFailureResponse(response, error, 'Failed to generate supplier drafts');
@@ -608,6 +619,8 @@ export function createAiRouter(dependencies: AiRouteDependencies) {
     const extractedParts = readExtractedParts(body.extractedParts, false);
     const severity = body.severity === undefined ? 'MEDIUM' : body.severity;
     const faultSummary = body.faultSummary;
+    const repairPort = body.repairPort === undefined ? undefined : readRepairPort(body.repairPort);
+    if (repairPort === null) return response.status(400).json({ error: 'Select a valid repair port.' });
     if (
       !Number.isSafeInteger(body.vesselId) ||
       (body.vesselId as number) <= 0 ||
@@ -622,6 +635,7 @@ export function createAiRouter(dependencies: AiRouteDependencies) {
     try {
       const result = await dependencies.processFaultReport({
         vesselId: body.vesselId as number,
+        ...(repairPort && { repairPort }),
         severity: severity as FaultSeverity,
         ...(typeof faultSummary === 'string' ? { faultSummary } : {}),
         extractedParts,
@@ -641,7 +655,7 @@ export function createAiRouter(dependencies: AiRouteDependencies) {
   return router;
 }
 
-function expressJson(limit: '128kb' | '7mb') {
+function expressJson(limit: '128kb' | '512kb' | '7mb') {
   // The route-local parser runs before the app's global JSON parser.
   return express.json({ limit });
 }

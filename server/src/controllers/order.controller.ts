@@ -1,12 +1,23 @@
 import type { Request, Response } from 'express';
-import { orderService, readRepairPort } from '../services/order.service.js';
-import { isAuthorizedBrowserPost } from '../routes/ai.route.js';
+import { orderService } from '../services/order.service.js';
 
 // Narrows Express 5's `string | string[] | undefined` to a positive integer
 function parseId(raw: string | string[] | undefined): number | null {
   if (typeof raw !== 'string') return null;
   const id = Number(raw);
-  return Number.isInteger(id) && id > 0 ? id : null;
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function readMeasurement(input: unknown) {
+  const percentage = (value: unknown): value is number =>
+    typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 100;
+  if (!isRecord(input) || Object.keys(input).length !== 2 ||
+      !percentage(input.measuredHealth) || !percentage(input.expectedHealth)) return null;
+  return { measuredHealth: input.measuredHealth, expectedHealth: input.expectedHealth };
 }
 
 export const orderController = {
@@ -41,9 +52,23 @@ export const orderController = {
     const id = parseId(req.params.id);
     if (!id) return res.status(400).json({ error: 'Invalid order ID' });
 
+    const input: unknown = req.body;
+    if (!isRecord(input) || !Object.keys(input).length || Object.keys(input).some(key => key !== 'subject' && key !== 'body')) {
+      return res.status(400).json({ error: 'Provide a subject, body, or both.' });
+    }
+    const draft: { subject?: string; body?: string } = {};
+    for (const key of ['subject', 'body'] as const) {
+      if (!(key in input)) continue;
+      const value = input[key];
+      const limit = key === 'subject' ? 500 : 24_000;
+      if (typeof value !== 'string' || !value.trim() || value.length > limit) {
+        return res.status(400).json({ error: `The draft ${key} must contain 1 to ${limit} characters.` });
+      }
+      draft[key] = value.trim();
+    }
     try {
-      const { subject, body } = req.body;
-      const updated = await orderService.updateDraft(id, { subject, body });
+      const updated = await orderService.updateDraft(id, draft);
+      if (!updated) return res.status(409).json({ error: 'Only a draft awaiting approval can be edited.' });
       return res.json(updated);
     } catch (error) {
       return res.status(500).json({ error: 'Failed to update draft' });
@@ -63,17 +88,13 @@ export const orderController = {
   },
 
   async recordSend(req: Request, res: Response) {
-    if (!isAuthorizedBrowserPost(req)) return res.status(403).json({ error: 'Request origin or network is not allowed.' });
     const id = parseId(req.params.id);
     if (!id) return res.status(400).json({ error: 'Invalid order ID' });
-    const input: unknown = req.body ?? {};
-    if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(key => key !== 'repairPort')) {
-      return res.status(400).json({ error: 'Send an empty object or include the selected repairPort.' });
+    if (req.body !== undefined && (!isRecord(req.body) || Object.keys(req.body).length)) {
+      return res.status(400).json({ error: 'Record the external send with an empty object. The delivery port is set when drafting.' });
     }
-    const port = 'repairPort' in input ? readRepairPort(input.repairPort) : undefined;
-    if (port === null) return res.status(400).json({ error: 'Invalid repair port code, name, or coordinates.' });
     try {
-      const result = await orderService.recordSend(id, port);
+      const result = await orderService.recordSend(id);
       return res.status(result.status).json(result.body);
     } catch {
       return res.status(500).json({ error: 'Failed to record the external send and repair destination.' });
@@ -94,26 +115,29 @@ export const orderController = {
   },
 
   async completeRepair(req: Request, res: Response) {
-    if (!isAuthorizedBrowserPost(req)) return res.status(403).json({ error: 'Request origin or network is not allowed.' });
     const id = parseId(req.params.id);
     if (!id) return res.status(400).json({ error: 'Invalid order ID' });
-    const input: unknown = req.body ?? {};
-    if (typeof input !== 'object' || Array.isArray(input)) return res.status(400).json({ error: 'Invalid repair details.' });
-    const percentage = (value: unknown): value is number =>
-      typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 100;
-    let measurement;
-    if (input && Object.keys(input).length > 0) {
-      if (!('measuredHealth' in input) || !('expectedHealth' in input) ||
-          !percentage(input.measuredHealth) || !percentage(input.expectedHealth)) {
-        return res.status(400).json({ error: 'Enter whole-number health percentages from 0 to 100.' });
-      }
-      measurement = { measuredHealth: input.measuredHealth, expectedHealth: input.expectedHealth };
+    if (req.body !== undefined && (!isRecord(req.body) || Object.keys(req.body).length)) {
+      return res.status(400).json({ error: 'Complete the repair without a hull health measurement.' });
     }
     try {
-      const result = await orderService.completeRepair(id, measurement);
+      const result = await orderService.completeRepair(id);
       return res.status(result.status).json(result.body);
     } catch {
       return res.status(500).json({ error: 'Failed to save the repair and vessel health.' });
+    }
+  },
+
+  async recordMeasuredHealth(req: Request, res: Response) {
+    const id = parseId(req.params.id);
+    if (!id) return res.status(400).json({ error: 'Invalid vessel ID.' });
+    const measurement = readMeasurement(req.body);
+    if (!measurement) return res.status(400).json({ error: 'Enter whole-number health percentages from 0 to 100.' });
+    try {
+      const result = await orderService.recordMeasuredHealth(id, measurement);
+      return res.status(result.status).json(result.body);
+    } catch {
+      return res.status(500).json({ error: 'Failed to save the measured hull health.' });
     }
   },
 };

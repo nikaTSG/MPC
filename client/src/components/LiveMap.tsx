@@ -83,7 +83,7 @@ const getVesselStatusColor = (health: number): string => {
 };
 
 function vesselNeedsRepair(vessel: Vessel) {
-  return vessel.health < 100 || vessel.operationalStatus === 'MAINTENANCE_REQUIRED';
+  return vessel.health < 100;
 }
 
 const repairIcons = {
@@ -114,7 +114,7 @@ function RepairMarkers({ ports, fit, markers, onPopupChange, onChoose }: {
           <div>{Math.round(port.distanceNm)} NM · {port.repairService}</div>
           <div>{fit ? 'Within published vessel limits' : 'Vessel limits need confirmation'}</div>
           <div>Live berth availability unknown</div>
-          <button type="button" className="dashboard-button" onClick={() => onChoose(port)}>Choose repair port</button>
+          <button type="button" className="dashboard-button" onClick={() => onChoose(port)}>Use for next RFQ</button>
         </div>
       </Popup>
     </Marker>
@@ -533,10 +533,12 @@ export const LiveMap: React.FC<LiveMapProps> = ({
 
       <div className="map-area">
         <div className="map-viewport">
+          {/* Leaflet's CSS zoom completion can fire after this tab unmounts. */}
           <MapContainer
             center={mapCenter}
             zoom={INITIAL_ZOOM}
             minZoom={0}
+            zoomAnimation={false}
             style={{ position: 'absolute', inset: 0 }}
           >
             <MapCameraAndZoomController center={mapCenter} worldwide={showWorldwide} route={routeToFrame}
@@ -743,7 +745,7 @@ export const LiveMap: React.FC<LiveMapProps> = ({
             <header className="repair-panel-header">
               <h2>Nearby repair ports</h2>
               <p><span>{repairShip.name}</span><span>{REPAIR_PORT_RADIUS_NM} NM radius</span></p>
-              {repairPortSelection ? <p role="status">RFQ repair port · {repairPortSelection.name}</p>
+              {repairPortSelection ? <p role="status">Next RFQ repair port · {repairPortSelection.name}</p>
                 : recommendedRepairPort && <p role="status">Automatic repair port · {recommendedRepairPort.name}</p>}
             </header>
             {repairError ? (

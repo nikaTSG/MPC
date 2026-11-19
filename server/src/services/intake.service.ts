@@ -43,9 +43,10 @@ async function previousReview(input: ReviewedIntake): Promise<IntakeProcessResul
 
   if (isJsonObject(row.extraction)) {
     // Earlier manual saves contain just the extraction and created no orders.
-    const { draftCount = 0, ...extraction } = row.extraction;
+    const { draftCount = 0, hasEmail, repairPort = null, ...extraction } = row.extraction;
     if (row.vesselId === input.vesselId && row.sender === input.sender && row.subject === input.subject &&
         row.filename === input.filename && row.category === input.extraction.category &&
+        (hasEmail === undefined || hasEmail === input.hasEmail) && isDeepStrictEqual(repairPort, input.repairPort ?? null) &&
         typeof draftCount === 'number' && Number.isSafeInteger(draftCount) && draftCount >= 0 &&
         isDeepStrictEqual(extraction, input.extraction)) {
       return { status: 200, body: { id: row.id, vesselId: row.vesselId, category: row.category, draftCount } };
@@ -57,27 +58,27 @@ async function previousReview(input: ReviewedIntake): Promise<IntakeProcessResul
 async function storeIntake(input: ReviewedIntake, credentials?: AiCredentials): Promise<IntakeProcessResult> {
   const { intakeId: id, vesselId, sender, subject, filename, extraction } = input;
   const category = extraction.category;
-  const data = { id, vesselId, sender, subject, filename, category, extraction };
+  const findings = { ...extraction, hasEmail: input.hasEmail, repairPort: input.repairPort ?? null };
+  const data = { id, vesselId, sender, subject, filename, category, extraction: findings };
 
   try {
-    if (credentials) {
-      // Check before looking up suppliers or using the provider on a retry.
-      const existing = await previousReview(input);
-      if (existing) return existing;
-    }
+    const existing = await previousReview(input);
+    if (existing) return existing;
     if (credentials && vesselId !== null && category === 'DEFECT_REPORT') {
       const parts = extraction.parts.flatMap((part): ExtractedPartInput[] =>
         part.partNumber && part.quantity !== null ? [{ ...part, partNumber: part.partNumber, quantity: part.quantity }] : [],
       );
       if (parts.length) {
         // Match against the current catalog before taking the SQLite write lock.
-        const prepared = await orderService.prepareDraftsFromReport(vesselId, parts, credentials);
+        const prepared = await orderService.prepareDraftsFromReport(vesselId, parts, credentials, input.repairPort);
         const draftCount = prepared.drafts.length;
         await db.transaction(async (tx) => {
           // The intake primary key claims the review before any orders are inserted.
-          await tx.orm.ReaderIntake.create({ ...data, extraction: { ...extraction, draftCount } });
+          await tx.orm.ReaderIntake.create({ ...data, extraction: { ...findings, draftCount } });
           try {
-            await orderService.persistPreparedDrafts(prepared, (order) => tx.orm.Order.create(order));
+            // Document intake records no health loss. Group its RFQs for dispatch and measured completion.
+            await orderService.persistPreparedDrafts(prepared, (order) =>
+              tx.orm.Order.create({ ...order, repairFaultId: id, repairHealthLoss: null }));
           } catch (error) {
             if (storageFailure(error) === '23503') throw new CatalogChangedError();
             throw error;
@@ -107,12 +108,35 @@ async function storeIntake(input: ReviewedIntake, credentials?: AiCredentials): 
 
 class CatalogChangedError extends Error {}
 
+const activeReviews = new Map<string, { input: ReviewedIntake; result: Promise<IntakeProcessResult> }>();
+
+async function saveOnce(input: ReviewedIntake, credentials?: AiCredentials): Promise<IntakeProcessResult> {
+  const active = activeReviews.get(input.intakeId);
+  if (active) {
+    if (!isDeepStrictEqual(active.input, input)) {
+      return { status: 409, body: { error: 'This review is already being saved with different details.' } };
+    }
+    const result = await active.result;
+    return result.status === 201 ? { ...result, status: 200 } : result;
+  }
+  if (activeReviews.size >= 32) {
+    return { status: 503, body: { error: 'Too many documents are processing. Retry this review shortly.' } };
+  }
+  const result = storeIntake(input, credentials);
+  activeReviews.set(input.intakeId, { input, result });
+  try {
+    return await result;
+  } finally {
+    activeReviews.delete(input.intakeId);
+  }
+}
+
 export function processReviewedIntake(input: ReviewedIntake, credentials: AiCredentials): Promise<IntakeProcessResult> {
-  return storeIntake(input, credentials);
+  return saveOnce(input, credentials);
 }
 
 export async function saveReviewedIntake(input: ReviewedIntake): Promise<IntakeSaveResult> {
-  const result = await storeIntake(input);
+  const result = await saveOnce(input);
   if (result.status !== 200 && result.status !== 201) return result;
   const { id, vesselId, category } = result.body;
   return { status: result.status, body: { id, vesselId, category } };
@@ -146,11 +170,16 @@ export async function recentReviewedIntakes(includeExtraction = false): Promise<
       const summaries = tx.orm.ReaderIntake.select('id', 'vesselId', 'category', 'subject', 'filename', 'createdAt', 'extraction')
         .orderBy([(item) => item.createdAt.desc(), (item) => item.id.desc()]);
       const records = await summaries.limit(5).all();
-      // Older reviews have no source-kind column. Email headers or a plain text submission
-      // identify email records; an attachment alone could be a standalone document.
-      const latestEmail = await summaries.where((item, { fns }) => fns.or(
-        item.subject.isNotNull(), item.sender.isNotNull(), item.filename.isNull(),
-      )).first();
+      // Across the full history, use the signed source marker for new reviews.
+      // Legacy PDF records cannot distinguish a bare attachment from pasted text with a PDF.
+      const [email] = await tx.query(tx.raw.sql`
+        SELECT id FROM ReaderIntake
+        WHERE COALESCE(json_extract(extraction, '$.hasEmail'),
+                       subject IS NOT NULL OR sender IS NOT NULL OR filename IS NULL)
+        ORDER BY createdAt DESC, id DESC LIMIT 1
+      `.returnsRow({ id: 'sqlite/text@1' }).build());
+      const latestEmail = email ? records.find((row) => row.id === email.id) ??
+        await summaries.where((item) => item.id.eq(email.id)).first() : null;
       return { records, latestEmail };
     });
     const serialize = ({ extraction, createdAt, ...metadata }: typeof records[number]): RecentIntake => ({

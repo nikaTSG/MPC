@@ -1,4 +1,4 @@
-import type { ExtractedPartInput } from '../../services/order.service.js';
+import type { ExtractedPartInput, RepairPort } from '../../services/order.service.js';
 import { requestAiText, type AiCredentials } from './aiProvider.js';
 
 export interface DraftedSupplierEmail {
@@ -22,6 +22,7 @@ interface DraftEmailsInput {
     eta?: Date | string | null;
   };
   extractedParts: ExtractedPartInput[];
+  repairPort?: RepairPort;
   suppliers: {
     id: number;
     name: string;
@@ -33,12 +34,13 @@ interface DraftEmailsInput {
 const SYSTEM_PROMPT = `
 You are a Senior Maritime Procurement Officer for ENOUGH Carriers.
 You will receive JSON containing:
-1. "vessel": Vessel details (name, IMO, destinationPortCode, eta).
+1. "vessel": Vessel name, IMO, target delivery port, and ETA if known.
 2. "neededParts": Spare parts required from an onboard technical fault report.
 3. "suppliers": Approved vendors in our database, their portLocation, and the parts they supply.
 
 Your job:
-- Match each needed part to the single best supplier from "suppliers" based on part catalog match and proximity to the vessel's destinationPortCode.
+- Match each needed part to one supplier based on its catalog and proximity to the vessel's delivery port.
+- Use the supplied delivery port exactly. When no ETA is supplied, omit it. Do not infer a port or date.
 - Consolidate multiple parts going to the same supplier into ONE email draft (never send multiple emails to the same supplier).
 - Write a concise, professional maritime Request for Quotation (RFQ) email for each matched supplier.
 - Include the Vessel Name, IMO number, target delivery port, OEM part numbers, part names, and quantities in the email body.
@@ -52,7 +54,7 @@ You MUST respond with valid JSON matching this exact schema (no markdown, no ext
     {
       "supplierId": 1,
       "urgency": "CRITICAL",
-      "subject": "URGENT RFQ - M/V STAR MARISA (IMO 9696660) - Main Engine Spares - SGSIN",
+      "subject": "RFQ - Main Engine Spares",
       "body": "Dear Supplier,\\n\\nPlease provide your best quotation and earliest availability...",
       "matchedParts": [
         {
@@ -107,18 +109,28 @@ export async function draftSupplierEmails(
   input: DraftEmailsInput,
   credentials: AiCredentials,
 ): Promise<AgentProcurementResponse> {
-  const extractedParts = sanitizeExtractedParts(input.extractedParts);
+  const requestedParts = consolidateParts(sanitizeExtractedParts(input.extractedParts));
+  const requestedNumbers = new Set(requestedParts.map(part => part.partNumber.toLowerCase()));
+  const suppliers = input.suppliers.flatMap(supplier => {
+    if (!Number.isSafeInteger(supplier.id) || supplier.id <= 0) return [];
+    const parts = catalogParts(supplier.parts).filter(part => requestedNumbers.has(part.partNumber.trim().toLowerCase()));
+    return parts.length ? [{ ...supplier, parts }] : [];
+  });
+  if (!suppliers.length) return { drafts: [] };
+  const availableNumbers = new Set(suppliers.flatMap(supplier => supplier.parts.map(part => part.partNumber.trim().toLowerCase())));
+  const extractedParts = requestedParts.filter(part => availableNumbers.has(part.partNumber.toLowerCase()));
 
   // Strip sensitive/unnecessary fields (like supplier emails) before sending to the LLM
   const sanitizedPayload = {
     vessel: {
       name: input.vessel.name,
       imo: input.vessel.imo,
-      destinationPortCode: input.vessel.destinationPortCode ?? 'TBD',
-      eta: input.vessel.eta ?? 'TBD',
+      ...(input.repairPort
+        ? { deliveryPort: input.repairPort.name, destinationPortCode: input.repairPort.code }
+        : { destinationPortCode: input.vessel.destinationPortCode ?? null, ...(input.vessel.eta && { eta: input.vessel.eta }) }),
     },
     neededParts: extractedParts,
-    suppliers: input.suppliers.map((s) => ({
+    suppliers: suppliers.map((s) => ({
       id: s.id,
       name: s.name,
       portLocation: s.portLocation,
@@ -145,7 +157,22 @@ export async function draftSupplierEmails(
     throw new Error('AI response missing "drafts" array');
   }
 
-  return { drafts: validateDrafts(parsed.drafts, { ...input, extractedParts }) };
+  return { drafts: validateDrafts(parsed.drafts, { ...input, extractedParts, suppliers }) };
+}
+
+// Each canonical line is offered to the provider once, with its entire requested quantity.
+function consolidateParts(parts: ExtractedPartInput[]) {
+  const byKey = new Map<string, ExtractedPartInput>();
+  for (const part of parts) {
+    const key = JSON.stringify([part.partNumber.toLowerCase(), part.partName.toLowerCase()]);
+    const prior = byKey.get(key);
+    if (!prior) byKey.set(key, { ...part });
+    else {
+      prior.quantity += part.quantity;
+      if (part.notes && part.notes !== prior.notes) prior.notes = [prior.notes, part.notes].filter(Boolean).join('\n');
+    }
+  }
+  return [...byKey.values()];
 }
 
 function sanitizeExtractedParts(value: unknown): ExtractedPartInput[] {
@@ -208,7 +235,8 @@ function validateDrafts(rawDrafts: unknown[], input: DraftEmailsInput): DraftedS
       if (requestedIndex < 0) continue;
 
       const requestedPart = input.extractedParts[requestedIndex];
-      if (!requestedPart || !supplierCatalogContains(supplier.parts, requestedPart.partNumber)) continue;
+      if (!requestedPart || !catalogParts(supplier.parts).some(part =>
+        part.partNumber.trim().toLowerCase() === requestedPart.partNumber.toLowerCase())) continue;
       usedPartIndexes.add(requestedIndex);
       matchedParts.push({ ...requestedPart, notes: requestedPart.notes ?? null });
     }
@@ -221,34 +249,27 @@ function validateDrafts(rawDrafts: unknown[], input: DraftEmailsInput): DraftedS
       continue;
     }
 
-    const priorPartKeys = new Set(existing.matchedParts.map(partKey));
-    const additions = matchedParts.filter((part) => !priorPartKeys.has(partKey(part)));
-    existing.matchedParts.push(...additions);
-    if (additions.length > 0) {
-      const bullets = additions.map((part) => `- ${part.partNumber} — ${part.partName} (quantity: ${part.quantity})`);
-      existing.body = `${existing.body}\n\nAdditional verified requested parts:\n${bullets.join('\n')}`.slice(0, 20_000);
-    }
+    existing.matchedParts.push(...matchedParts);
+    const bullets = matchedParts.map((part) => `- ${part.partNumber} — ${part.partName} (quantity: ${part.quantity})`);
+    existing.body += `\n\nAdditional verified requested parts:\n${bullets.join('\n')}`;
     if (urgencyRank(urgency) > urgencyRank(existing.urgency)) existing.urgency = urgency;
   }
 
   return [...draftsBySupplier.values()];
 }
 
-function supplierCatalogContains(catalog: unknown, partNumber: string): boolean {
+function catalogParts(catalog: unknown): (Record<string, unknown> & { partNumber: string })[] {
   let items = catalog;
   if (typeof items === 'string') {
     try {
       items = JSON.parse(items) as unknown;
     } catch {
-      return false;
+      return [];
     }
   }
-  if (!Array.isArray(items)) return false;
-  const normalizedPartNumber = partNumber.trim().toLowerCase();
-  return items.some((item) =>
-    isRecord(item) &&
-    typeof item.partNumber === 'string' &&
-    item.partNumber.trim().toLowerCase() === normalizedPartNumber,
+  if (!Array.isArray(items)) return [];
+  return items.filter((item): item is Record<string, unknown> & { partNumber: string } =>
+    isRecord(item) && typeof item.partNumber === 'string',
   );
 }
 
@@ -264,10 +285,6 @@ function isUrgency(value: unknown): value is DraftedSupplierEmail['urgency'] {
 
 function urgencyRank(value: DraftedSupplierEmail['urgency']): number {
   return value === 'CRITICAL' ? 2 : value === 'NORMAL' ? 1 : 0;
-}
-
-function partKey(part: ExtractedPartInput): string {
-  return `${part.partNumber.trim().toLowerCase()}\u0000${part.partName.trim().toLowerCase()}`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

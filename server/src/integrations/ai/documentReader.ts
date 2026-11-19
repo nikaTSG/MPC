@@ -1,8 +1,10 @@
 import { execFile } from 'node:child_process';
+import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { AiCredentials, AiRequest } from './aiProvider.js';
 import type { FaultSeverity } from '../../services/vessel.service.js';
+import type { RepairPort } from '../../services/order.service.js';
 
 const categories = ['DEFECT_REPORT', 'VESSEL_UPDATE', 'SUPPLIER_QUOTE', 'OTHER'] as const;
 const severities: readonly FaultSeverity[] = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
@@ -23,7 +25,8 @@ export type IntakeExtraction = {
 };
 
 export type IntakeSource = { sender: string | null; subject: string | null; filename: string | null };
-export type ReviewedIntake = { intakeId: string; vesselId: number | null; extraction: IntakeExtraction } & IntakeSource;
+type ReaderFindings = IntakeSource & { intakeId: string; hasEmail: boolean; extraction: IntakeExtraction };
+export type ReviewedIntake = ReaderFindings & { vesselId: number | null; repairPort?: RepairPort };
 
 type DocumentReadResult = { extraction: IntakeExtraction } | { status: number; error: string };
 
@@ -130,15 +133,34 @@ export function readIntakeExtraction(value: unknown): IntakeExtraction | null {
     imo: value.imo, severity: value.severity, parts, facts };
 }
 
-/** With plain text, drop identifiers that cannot be traced back to the submitted source. */
-export function groundTextIdentifiers(extraction: IntakeExtraction, text: string): IntakeExtraction {
-  const normalize = (input: string) => input.replace(/\s+/g, ' ').toUpperCase();
-  const source = normalize(text);
-  const literal = (value: string | null) => value && source.includes(normalize(value)) ? value : null;
-  return {
-    ...extraction,
-    vesselName: literal(extraction.vesselName),
-    imo: extraction.imo && new RegExp('(?<![0-9])' + extraction.imo + '(?![0-9])').test(source) ? extraction.imo : null,
-    parts: extraction.parts.map((part) => ({ ...part, partNumber: literal(part.partNumber) })),
-  };
+// A restart invalidates outstanding reviews. No document or provider key is retained here.
+const reviewKey = randomBytes(32);
+const reviewLifetimeMs = 30 * 60_000;
+
+function signReview(fields: ReaderFindings, expires: number) {
+  return createHmac('sha256', reviewKey).update(JSON.stringify([
+    expires, fields.intakeId, fields.sender, fields.subject, fields.filename, fields.hasEmail, fields.extraction,
+  ])).digest('base64url');
+}
+
+export function issueIntakeReview(source: IntakeSource, hasEmail: boolean, extraction: IntakeExtraction) {
+  // readIntakeExtraction establishes the property order used when verifying the signature.
+  const fields = { ...source, intakeId: randomUUID(), hasEmail, extraction };
+  const expires = Date.now() + reviewLifetimeMs;
+  return { ...fields, reviewReceipt: `${expires}.${signReview(fields, expires)}` };
+}
+
+export function verifyIntakeReview(body: unknown): ReaderFindings | { error: string } {
+  const invalid = { error: 'The document review is invalid or has expired. Read the document again.' };
+  if (!isRecord(body) || typeof body.intakeId !== 'string' || body.intakeId.length !== 36 ||
+      typeof body.hasEmail !== 'boolean' || typeof body.reviewReceipt !== 'string') return invalid;
+  const receipt = /^(\d{13})\.([A-Za-z0-9_-]{43})$/.exec(body.reviewReceipt);
+  const expires = Number(receipt?.[1]);
+  const source = readIntakeSource(body);
+  const extraction = readIntakeExtraction(body.extraction);
+  if (!receipt?.[2] || expires <= Date.now() || !source || !extraction) return invalid;
+  const fields = { ...source, intakeId: body.intakeId, hasEmail: body.hasEmail, extraction };
+  if (!timingSafeEqual(Buffer.from(signReview(fields, expires)), Buffer.from(receipt[2]))) return invalid;
+
+  return fields;
 }
