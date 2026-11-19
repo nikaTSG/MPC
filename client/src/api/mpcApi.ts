@@ -117,13 +117,78 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   return data as T;
 }
 
-function requestAi<T>(path: 'chat' | 'pdf' | 'drafts' | 'report', settings: AiSettings, payload: object) {
+function requestAi<T>(path: 'pdf' | 'drafts' | 'report', settings: AiSettings, payload: object) {
   return request<T>(`/api/v1/ai/${path}`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${settings.apiKey}` },
     body: JSON.stringify({ ...payload, provider: settings.provider, model: settings.model }),
     cache: 'no-store',
   });
+}
+
+async function streamAiMessage(
+  settings: AiSettings,
+  messages: AiChatMessage[],
+  onDelta: (text: string) => void,
+  signal: AbortSignal,
+): Promise<string> {
+  const response = await fetch('/api/v1/ai/chat', {
+    method: 'POST',
+    headers: {
+      Accept: 'application/x-ndjson',
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${settings.apiKey}`,
+    },
+    body: JSON.stringify({ messages, provider: settings.provider, model: settings.model }),
+    cache: 'no-store',
+    signal,
+  });
+  if (!response.ok) {
+    const payload: { error?: unknown } | null = await response.json().catch(() => null);
+    throw new Error(typeof payload?.error === 'string' ? payload.error : 'Could not start the reply.');
+  }
+
+  const contentType = response.headers.get('Content-Type')?.split(';', 1)[0];
+  if (!response.body || contentType !== 'application/x-ndjson') {
+    await response.body?.cancel();
+    throw new Error('The server could not stream a reply.');
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  const interrupted = 'The reply was interrupted. Send the message again to retry.';
+  let pending = '';
+  let reply = '';
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) throw new Error(interrupted);
+
+      const lines = (pending + decoder.decode(chunk.value, { stream: true })).split('\n');
+      pending = lines.pop() ?? '';
+      for (const line of lines) {
+        let event: { type?: unknown; text?: unknown; error?: unknown } | null;
+        try {
+          event = JSON.parse(line);
+        } catch {
+          throw new Error(interrupted);
+        }
+        if (event?.type === 'delta' && typeof event.text === 'string') {
+          reply += event.text;
+          onDelta(event.text);
+        } else if (event?.type === 'done' && reply.trim()) {
+          return reply;
+        } else if (event?.type === 'error' && typeof event.error === 'string') {
+          throw new Error(event.error);
+        } else {
+          throw new Error(interrupted);
+        }
+      }
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
+  }
 }
 
 // Safely unwraps either `[...]` or `{ [key]: [...] }` or `{ data: [...] }`
@@ -140,8 +205,7 @@ function extractArray<T>(payload: unknown, key: string): T[] {
 export const mpcApi = {
   getAiModels: () => request<AiModels>('/api/v1/ai/models', { cache: 'no-store' }),
 
-  sendAiMessage: (settings: AiSettings, messages: AiChatMessage[]) =>
-    requestAi<{ reply: string }>('chat', settings, { messages }),
+  streamAiMessage,
 
   readPdf: (settings: AiSettings, filename: string, fileData: string) =>
     requestAi<PdfReport>('pdf', settings, { filename, fileData }),

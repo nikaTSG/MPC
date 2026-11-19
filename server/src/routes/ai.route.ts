@@ -41,6 +41,11 @@ const PDF_INSTRUCTIONS = `Extract only maintenance facts and spare parts clearly
 
 export interface AiRouteDependencies {
   requestAiText(credentials: AiCredentials, input: AiRequest): Promise<string>;
+  streamAiText?(
+    credentials: AiCredentials,
+    input: AiRequest,
+    signal: AbortSignal,
+  ): AsyncIterable<string>;
   generateDrafts(
     vesselId: number,
     extractedParts: ExtractedPartInput[],
@@ -233,6 +238,106 @@ function aiRequestFailureResponse(response: Response, error: unknown) {
   return response.status(502).json({ error: 'AI provider request failed' });
 }
 
+function requestsNdjson(request: Request): boolean {
+  const accept = request.get('accept');
+  if (!accept) return false;
+
+  return accept.split(',').some((entry) => {
+    const [mediaType, ...parameters] = entry.split(';');
+    if (mediaType?.trim().toLowerCase() !== 'application/x-ndjson') return false;
+    const qualityParameter = parameters.find((parameter) => /^\s*q\s*=/i.test(parameter));
+    if (!qualityParameter) return true;
+    const quality = Number.parseFloat(qualityParameter.split('=')[1]?.trim() ?? '');
+    return Number.isFinite(quality) && quality > 0;
+  });
+}
+
+async function streamChatResponse(
+  request: Request,
+  response: Response,
+  credentials: AiCredentials,
+  input: AiRequest,
+  streamAiText: NonNullable<AiRouteDependencies['streamAiText']>,
+): Promise<void> {
+  const controller = new AbortController();
+  let clientDisconnected = false;
+  const abortRequest = () => {
+    clientDisconnected = true;
+    controller.abort();
+  };
+  const abortResponse = () => {
+    if (!response.writableEnded) abortRequest();
+  };
+  request.on('aborted', abortRequest);
+  response.on('close', abortResponse);
+
+  let iterator: AsyncIterator<string> | undefined;
+  let responseStarted = false;
+  let iteratorFinished = false;
+  let reply = '';
+  try {
+    iterator = streamAiText(credentials, input, controller.signal)[Symbol.asyncIterator]();
+    while (true) {
+      const chunk = await iterator.next();
+      if (clientDisconnected || controller.signal.aborted) return;
+      if (chunk.done) {
+        iteratorFinished = true;
+        break;
+      }
+      if (typeof chunk.value !== 'string') {
+        throw new AiProviderError(502, 'The AI provider returned an invalid response.');
+      }
+      if (chunk.value.length === 0) continue;
+      if (reply.length + chunk.value.length > 12_000) {
+        throw new AiProviderError(502, 'The AI provider returned an invalid response.');
+      }
+
+      if (!responseStarted) {
+        response.status(200);
+        response.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+        response.setHeader('Cache-Control', 'no-store');
+        response.setHeader('X-Content-Type-Options', 'nosniff');
+        response.setHeader('X-Accel-Buffering', 'no');
+        response.flushHeaders();
+        responseStarted = true;
+      }
+      reply += chunk.value;
+      response.write(`${JSON.stringify({ type: 'delta', text: chunk.value })}\n`);
+    }
+
+    if (reply.trim().length === 0) {
+      throw new AiProviderError(502, 'The AI provider returned an invalid response.');
+    }
+    response.write(`${JSON.stringify({ type: 'done' })}\n`);
+    response.end();
+  } catch (error) {
+    if (clientDisconnected || response.destroyed) return;
+    if (responseStarted) {
+      const message = error instanceof AiProviderError
+        ? error.message
+        : 'The AI provider request failed.';
+      response.write(`${JSON.stringify({ type: 'error', error: message })}\n`);
+      response.end();
+      return;
+    }
+    aiRequestFailureResponse(response, error);
+  } finally {
+    request.off('aborted', abortRequest);
+    response.off('close', abortResponse);
+    if (!iteratorFinished) {
+      controller.abort();
+      const cancellation = iterator?.return?.();
+      if (cancellation) {
+        if (clientDisconnected || response.destroyed) {
+          void cancellation.catch(() => undefined);
+        } else {
+          await cancellation.catch(() => undefined);
+        }
+      }
+    }
+  }
+}
+
 export function createAiRouter(dependencies: AiRouteDependencies) {
   const router = Router();
 
@@ -255,6 +360,7 @@ export function createAiRouter(dependencies: AiRouteDependencies) {
   });
 
   router.post('/chat', expressJson('128kb'), async (request, response) => {
+    response.vary('Accept');
     const body = isRecord(request.body) ? request.body : null;
     const credentials = readCredentials(request);
     const messages = body ? readChatMessages(body.messages) : null;
@@ -263,12 +369,19 @@ export function createAiRouter(dependencies: AiRouteDependencies) {
     }
     if (!messages) return response.status(400).json({ error: 'messages must contain one to seven alternating user and assistant messages, starting and ending with user' });
 
+    const input: AiRequest = {
+      instructions: 'You are an assistant for maritime maintenance and procurement. Be concise, factual, and clear about uncertainty.',
+      messages,
+      maxOutputTokens: 1200,
+    };
+
+    if (requestsNdjson(request) && dependencies.streamAiText) {
+      await streamChatResponse(request, response, credentials, input, dependencies.streamAiText);
+      return;
+    }
+
     try {
-      const reply = await dependencies.requestAiText(credentials, {
-        instructions: 'You are an assistant for maritime maintenance and procurement. Be concise, factual, and clear about uncertainty.',
-        messages,
-        maxOutputTokens: 1200,
-      });
+      const reply = await dependencies.requestAiText(credentials, input);
       if (typeof reply !== 'string' || reply.trim().length === 0 || reply.length > 12000) {
         return response.status(502).json({ error: 'AI provider returned an invalid response' });
       }

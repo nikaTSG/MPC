@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import { db } from '../prisma/db.js';
-import { requestAiText } from './integrations/ai/aiProvider.js';
+import { requestAiText, streamAiText } from './integrations/ai/aiProvider.js';
 import apiRoutes from './routes/index.js';
 import { createAiRouter } from './routes/ai.route.js';
 import { orderService } from './services/order.service.js';
@@ -13,6 +13,7 @@ const app = express();
 app.use(cors());
 app.use('/api/v1/ai', createAiRouter({
   requestAiText,
+  streamAiText,
   generateDrafts: (vesselId, extractedParts, credentials) =>
     orderService.generateDraftsFromReport(vesselId, extractedParts, credentials),
   processFaultReport: (input, credentials) => reportService.processFaultReport(input, credentials),

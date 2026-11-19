@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import type React from 'react';
 import AiChat from './AiChat';
 import AiPdfWorkflow from './AiPdfWorkflow';
@@ -154,12 +154,32 @@ export const ShipDashboard: React.FC = () => {
   const [chatRevision, setChatRevision] = useState(0);
   const [chatBusy, setChatBusy] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
+  const views = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!selectedVessel && vessels.length > 0) {
       setSelectedVesselId(vessels[0].id);
     }
   }, [vessels, selectedVessel, setSelectedVesselId]);
+
+  useLayoutEffect(() => {
+    const navigation = views.current;
+    const selected = navigation?.querySelector<HTMLButtonElement>('button[aria-pressed="true"]');
+    if (!navigation || !selected) return;
+
+    const positionIndicator = () => {
+      navigation.style.setProperty('--view-indicator-x', `${selected.offsetLeft}px`);
+      navigation.style.setProperty('--view-indicator-y', `${selected.offsetTop + selected.offsetHeight - 2}px`);
+      navigation.style.setProperty('--view-indicator-width', `${selected.offsetWidth}px`);
+      navigation.dataset.viewIndicator = '';
+    };
+
+    positionIndicator();
+    const resize = new ResizeObserver(positionIndicator);
+    resize.observe(navigation);
+    navigation.querySelectorAll('button').forEach((button) => resize.observe(button));
+    return () => resize.disconnect();
+  }, [activeTab]);
 
   const sections = deriveSectionsFromVessel(selectedVessel);
   const activeData = sections[selectedSection];
@@ -262,7 +282,7 @@ export const ShipDashboard: React.FC = () => {
           </div>
         </header>
 
-        <div className="dashboard-views" role="group" aria-label="Dashboard view">
+        <div ref={views} className="dashboard-views" role="group" aria-label="Dashboard view">
           {DASHBOARD_VIEWS.map(({ id, label }) => (
             <button
               key={id}
@@ -311,7 +331,7 @@ export const ShipDashboard: React.FC = () => {
 
                 <div className="subsystems">
                   <h2>{activeData.title}</h2>
-                  <dl className="subsystem-grid">
+                  <dl key={selectedSection} className="subsystem-grid">
                     {activeData.subsystems.map((item) => (
                       <div key={item.name} className="subsystem-row">
                         <dt>{item.name}</dt>

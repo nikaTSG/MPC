@@ -129,6 +129,93 @@ export async function requestAiText(
   }
 }
 
+export async function* streamAiText(
+  credentials: AiCredentials,
+  input: AiRequest,
+  signal: AbortSignal,
+  options: AiRequestOptions = {},
+): AsyncGenerator<string> {
+  const validated = validateRequest(credentials, input, options.timeoutMs);
+  const request = buildRequest(credentials, validated, true);
+  const controller = new AbortController();
+  let timedOut = false;
+  const abortFromCaller = () => controller.abort(signal.reason);
+  if (signal.aborted) abortFromCaller();
+  else signal.addEventListener('abort', abortFromCaller, { once: true });
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, validated.timeoutMs);
+
+  try {
+    let response: Response;
+    try {
+      response = await (options.fetchImpl ?? fetch)(request.url, {
+        method: 'POST',
+        headers: request.headers,
+        body: JSON.stringify(request.body),
+        redirect: 'error',
+        signal: controller.signal,
+      });
+    } catch {
+      if (signal.aborted) return;
+      if (timedOut) throw new AiProviderError(504, 'The AI provider request timed out.');
+      throw new AiProviderError(502, 'The AI provider request failed.');
+    }
+
+    if (!response.ok) throw providerStatusError(response.status);
+    if (!response.body) {
+      throw new AiProviderError(502, 'The AI provider returned an invalid response.');
+    }
+
+    let completed = false;
+    let receivedText = false;
+    let replyLength = 0;
+    for await (const event of readSseEvents(response.body)) {
+      const payload = parseStreamPayload(event.data);
+      if (payload === null) {
+        if (event.data.trim() === '[DONE]') {
+          if (credentials.provider === 'openai') {
+            completed = true;
+            break;
+          }
+          continue;
+        }
+        throw new AiProviderError(502, 'The AI provider returned an invalid response.');
+      }
+
+      const delta = readProviderStreamDelta(credentials.provider, event, payload);
+      if (delta.error) {
+        throw new AiProviderError(502, 'The AI provider request failed.');
+      }
+      if (delta.completed) completed = true;
+      if (delta.text) {
+        replyLength += delta.text.length;
+        if (replyLength > MAX_REPLY_CHARS) {
+          throw new AiProviderError(502, 'The AI provider returned an invalid response.');
+        }
+        receivedText = true;
+        yield delta.text;
+      }
+      if (completed) break;
+    }
+
+    if (signal.aborted) return;
+    if (timedOut) throw new AiProviderError(504, 'The AI provider request timed out.');
+    if (!completed || !receivedText) {
+      throw new AiProviderError(502, 'The AI provider returned an invalid response.');
+    }
+  } catch (error) {
+    if (signal.aborted) return;
+    if (timedOut) throw new AiProviderError(504, 'The AI provider request timed out.');
+    if (error instanceof AiProviderError) throw error;
+    throw new AiProviderError(502, 'The AI provider returned an invalid response.');
+  } finally {
+    clearTimeout(timeout);
+    signal.removeEventListener('abort', abortFromCaller);
+  }
+}
+
 interface ValidatedAiRequest extends AiRequest {
   maxOutputTokens: number;
   timeoutMs: number;
@@ -228,18 +315,26 @@ interface BuiltRequest {
   body: ProviderPayload;
 }
 
-function buildRequest(credentials: AiCredentials, input: ValidatedAiRequest): BuiltRequest {
+function buildRequest(
+  credentials: AiCredentials,
+  input: ValidatedAiRequest,
+  streaming = false,
+): BuiltRequest {
   switch (credentials.provider) {
     case 'openai':
-      return buildOpenAIRequest(credentials, input);
+      return buildOpenAIRequest(credentials, input, streaming);
     case 'gemini':
-      return buildGeminiRequest(credentials, input);
+      return buildGeminiRequest(credentials, input, streaming);
     case 'anthropic':
-      return buildAnthropicRequest(credentials, input);
+      return buildAnthropicRequest(credentials, input, streaming);
   }
 }
 
-function buildOpenAIRequest(credentials: AiCredentials, input: ValidatedAiRequest): BuiltRequest {
+function buildOpenAIRequest(
+  credentials: AiCredentials,
+  input: ValidatedAiRequest,
+  streaming: boolean,
+): BuiltRequest {
   const messages = input.messages.map((message, index) => {
     if (input.pdf && index === input.lastUserIndex) {
       return {
@@ -264,6 +359,7 @@ function buildOpenAIRequest(credentials: AiCredentials, input: ValidatedAiReques
     store: false,
     max_output_tokens: input.maxOutputTokens,
     reasoning: { effort: 'low' },
+    ...(streaming ? { stream: true } : {}),
   };
 
   if (input.jsonSchema) {
@@ -287,7 +383,11 @@ function buildOpenAIRequest(credentials: AiCredentials, input: ValidatedAiReques
   };
 }
 
-function buildGeminiRequest(credentials: AiCredentials, input: ValidatedAiRequest): BuiltRequest {
+function buildGeminiRequest(
+  credentials: AiCredentials,
+  input: ValidatedAiRequest,
+  streaming: boolean,
+): BuiltRequest {
   const contents = input.messages.map((message, index) => ({
     role: message.role === 'assistant' ? 'model' : 'user',
     parts: [
@@ -307,7 +407,7 @@ function buildGeminiRequest(credentials: AiCredentials, input: ValidatedAiReques
   }
 
   return {
-    url: `${GEMINI_ENDPOINT}/${encodeURIComponent(credentials.model)}:generateContent`,
+    url: `${GEMINI_ENDPOINT}/${encodeURIComponent(credentials.model)}:${streaming ? 'streamGenerateContent?alt=sse' : 'generateContent'}`,
     headers: {
       'x-goog-api-key': credentials.apiKey,
       'Content-Type': 'application/json',
@@ -320,7 +420,11 @@ function buildGeminiRequest(credentials: AiCredentials, input: ValidatedAiReques
   };
 }
 
-function buildAnthropicRequest(credentials: AiCredentials, input: ValidatedAiRequest): BuiltRequest {
+function buildAnthropicRequest(
+  credentials: AiCredentials,
+  input: ValidatedAiRequest,
+  streaming: boolean,
+): BuiltRequest {
   const messages = input.messages.map((message, index) => {
     if (input.pdf && index === input.lastUserIndex) {
       return {
@@ -346,6 +450,7 @@ function buildAnthropicRequest(credentials: AiCredentials, input: ValidatedAiReq
     max_tokens: input.maxOutputTokens,
     system: input.instructions,
     messages,
+    ...(streaming ? { stream: true } : {}),
   };
   if (input.jsonSchema) {
     body.output_config = {
@@ -416,6 +521,149 @@ function extractAnthropicReply(content: unknown): string | null {
     .join('')
     .trim();
   return text.length > 0 ? text : null;
+}
+
+interface ProviderSseEvent {
+  name: string;
+  data: string;
+}
+
+async function* readSseEvents(body: ReadableStream<Uint8Array>): AsyncGenerator<ProviderSseEvent> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let eventName = '';
+  let dataLines: string[] = [];
+  let streamEnded = false;
+
+  const readLine = (line: string): ProviderSseEvent | null => {
+    if (line.startsWith(':')) return null;
+    if (line === '') {
+      if (dataLines.length === 0) {
+        eventName = '';
+        return null;
+      }
+      const event = { name: eventName, data: dataLines.join('\n') };
+      eventName = '';
+      dataLines = [];
+      return event;
+    }
+
+    const colon = line.indexOf(':');
+    const field = colon < 0 ? line : line.slice(0, colon);
+    const value = colon < 0 ? '' : line.slice(colon + 1).replace(/^ /, '');
+    if (field === 'event') eventName = value;
+    if (field === 'data') dataLines.push(value);
+    return null;
+  };
+
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) {
+        streamEnded = true;
+        buffer += decoder.decode();
+        break;
+      }
+
+      buffer += decoder.decode(chunk.value, { stream: true });
+      if (buffer.startsWith('\uFEFF')) buffer = buffer.slice(1);
+      let newline = buffer.indexOf('\n');
+      while (newline >= 0) {
+        const line = buffer.slice(0, newline).replace(/\r$/, '');
+        buffer = buffer.slice(newline + 1);
+        const event = readLine(line);
+        if (event) yield event;
+        newline = buffer.indexOf('\n');
+      }
+    }
+
+    if (buffer.length > 0) {
+      const event = readLine(buffer.replace(/\r$/, ''));
+      if (event) yield event;
+    }
+    if (dataLines.length > 0) {
+      yield { name: eventName, data: dataLines.join('\n') };
+    }
+  } finally {
+    if (!streamEnded) await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
+  }
+}
+
+function parseStreamPayload(data: string): unknown | null {
+  try {
+    return JSON.parse(data) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+interface ProviderStreamDelta {
+  text: string;
+  completed: boolean;
+  error: boolean;
+}
+
+function readProviderStreamDelta(
+  provider: AiProvider,
+  event: ProviderSseEvent,
+  payload: unknown,
+): ProviderStreamDelta {
+  if (!isRecord(payload)) return { text: '', completed: false, error: true };
+  const type = typeof payload.type === 'string' ? payload.type : event.name;
+
+  if (provider === 'openai') {
+    if (type === 'error' || type === 'response.failed') {
+      return { text: '', completed: false, error: true };
+    }
+    if (type === 'response.output_text.delta') {
+      return {
+        text: typeof payload.delta === 'string' ? payload.delta : '',
+        completed: false,
+        error: typeof payload.delta !== 'string',
+      };
+    }
+    return {
+      text: '',
+      completed: type === 'response.completed' || type === 'response.incomplete',
+      error: false,
+    };
+  }
+
+  if (provider === 'anthropic') {
+    if (type === 'error') return { text: '', completed: false, error: true };
+    if (type !== 'content_block_delta') {
+      return { text: '', completed: type === 'message_stop', error: false };
+    }
+    const delta = payload.delta;
+    if (!isRecord(delta)) return { text: '', completed: false, error: true };
+    if (delta.type !== 'text_delta') return { text: '', completed: false, error: false };
+    return {
+      text: typeof delta.text === 'string' ? delta.text : '',
+      completed: false,
+      error: typeof delta.text !== 'string',
+    };
+  }
+
+  if (type === 'error') return { text: '', completed: false, error: true };
+  const candidates = payload.candidates;
+  if (!Array.isArray(candidates) || !isRecord(candidates[0])) {
+    return { text: '', completed: false, error: false };
+  }
+
+  const candidate = candidates[0];
+  const completed =
+    typeof candidate.finishReason === 'string' &&
+    candidate.finishReason !== 'FINISH_REASON_UNSPECIFIED';
+  const content = candidate.content;
+  const parts = isRecord(content) && Array.isArray(content.parts) ? content.parts : [];
+  const text = parts
+    .filter(isRecord)
+    .filter((part) => part.thought !== true && typeof part.text === 'string')
+    .map((part) => part.text as string)
+    .join('');
+  return { text, completed, error: false };
 }
 
 function providerStatusError(status: number): AiProviderError {
