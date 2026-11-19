@@ -20,6 +20,7 @@ const DASHBOARD_VIEWS = [
   { id: 'procurement', label: 'Procurement' },
 ] as const;
 type DashboardTab = (typeof DASHBOARD_VIEWS)[number]['id'];
+const PROPELLER_SHAFT = 'Propeller Shaft';
 
 const SIMULATED_FAULT = {
   severity: 'HIGH' as const,
@@ -112,7 +113,7 @@ function deriveSectionsFromVessel(vessel: Vessel | null): Record<SectionId, Sect
         },
         { name: 'Navigation Bridge', health: 100 },
         {
-          name: 'Propeller Shaft',
+          name: PROPELLER_SHAFT,
           health: shaftHealth,
           statusLabel: getStatusLabel(shaftHealth),
         },
@@ -337,6 +338,7 @@ export const ShipDashboard: React.FC = () => {
   }, [activeTab]);
 
   const sections = deriveSectionsFromVessel(selectedVessel);
+  const propellerHealth = sections.stern.subsystems.find(({ name }) => name === PROPELLER_SHAFT)?.health ?? 0;
   const activeData = sections[selectedSection];
   const portCalls = useMemo(() => new Map(vessels.map((vessel) => [vessel.id, estimatePortCall(vessel, now)])), [vessels, now]);
   const selectedPortCall = selectedVessel ? portCalls.get(selectedVessel.id) ?? null : null;
@@ -578,6 +580,7 @@ export const ShipDashboard: React.FC = () => {
                 <ShipModel
                   vessel={selectedVessel}
                   sections={sections}
+                  propellerHealth={propellerHealth}
                   selectedSection={selectedSection}
                   onSelectSection={setSelectedSection}
                 />

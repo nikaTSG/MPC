@@ -1,4 +1,4 @@
-import { useId } from 'react';
+import { useId, type CSSProperties } from 'react';
 import type { Vessel, VesselCategory } from '../api/mpcApi';
 
 export type SectionId = 'stern' | 'midship' | 'bow';
@@ -11,6 +11,7 @@ interface SectionSummary {
 
 interface VesselBlueprintProps {
   vessel: Vessel | null;
+  propellerHealth: number;
   sections: Record<SectionId, SectionSummary>;
   selectedSection: SectionId;
   onSelectSection: (section: SectionId) => void;
@@ -71,18 +72,39 @@ function Deckhouse({ containerShip }: { containerShip: boolean }) {
   );
 }
 
-function SternGear() {
+const wakeBubbles = [
+  { y: 246, rise: -7, radius: 1.2, delay: -.2 },
+  { y: 251, rise: -3, radius: 2, delay: -1.4 },
+  { y: 256, rise: -5, radius: 1.4, delay: -.7 },
+  { y: 249, rise: -11, radius: 1.6, delay: -1.05 },
+  { y: 261, rise: -2, radius: 1.8, delay: -1.75 },
+  { y: 253, rise: -8, radius: 1, delay: -.48 },
+];
+
+function SternGear({ propellerHealth }: { propellerHealth: number }) {
+  const running = propellerHealth > 0;
   return (
     <g>
+      {running && (
+        <g className="blueprint-propeller-wake" fill="#4e869b" stroke="#99c8d4" strokeWidth=".85">
+          {wakeBubbles.map(({ y, rise, radius, delay }) => (
+            <circle key={y} cx="95" cy={y} r={radius}
+              style={{ '--bubble-rise': `${rise}px`, animationDelay: `${delay}s` } as CSSProperties} />
+          ))}
+        </g>
+      )}
       {/* The shaft exits forward of the screw. The rudder stock enters the counter aft of it. */}
       <path d="M76 221h5v21h-5z" fill="#526d7c" />
       <path d="M68 238l17-3q4 0 4 4l-3 22-5 9H63l2-18z" fill="#234152" />
       <path d="M81 238l-3 28" stroke="#608496" strokeWidth=".8" />
       <path d="M102 248l34-1v6l-34-1z" fill="#57788a" />
-      <path d="M99 249q1-8 8-14 4-1 2 4l-6 11zm2 4q-1 7-7 13-4 1-2-4l5-10z"
-        fill="#304e61" stroke="#7697a8" strokeWidth="1" />
-      <path d="M100 248c-2-5-9-12-8-16q1-4 5-1c5 4 8 11 8 17z
-               M101 252c4 4 10 11 9 17q-2 4-5 1c-5-6-7-12-8-18z" fill="#698795" stroke="#a6bec8" />
+      <g className="blueprint-propeller" data-running={running} transform="translate(101 250)">
+        {[.69, .94, .44, .19].map(phase => (
+          <path key={phase} className="blueprint-propeller-blade" style={{ '--blade-phase': phase } as CSSProperties}
+            d="M-2 0C-2-5-6-13-6-17Q-6-22-2-20C2-18 6-9 6-6Q6-2 2 0Z"
+            fill={phase < .5 ? '#7897a5' : '#486676'} stroke="#9bb3c0" strokeWidth="1" />
+        ))}
+      </g>
       <path d="M95 248q3-3 10-1l2 2v3l-3 2q-7 0-11-3z" fill="#a4b7bb" />
     </g>
   );
@@ -193,7 +215,7 @@ function CargoDeck({ type }: { type?: string }) {
   );
 }
 
-export default function VesselBlueprint({ vessel, sections, selectedSection, onSelectSection }: VesselBlueprintProps) {
+export default function VesselBlueprint({ vessel, propellerHealth, sections, selectedSection, onSelectSection }: VesselBlueprintProps) {
   const id = useId();
   const steel = id + '-steel';
   const hull = id + '-hull';
@@ -236,7 +258,7 @@ export default function VesselBlueprint({ vessel, sections, selectedSection, onS
           </defs>
 
           <g fill="none" stroke="#5c96ad" strokeWidth="1.35" strokeLinejoin="round" strokeLinecap="round">
-            <SternGear />
+            <SternGear propellerHealth={propellerHealth} />
             <Deckhouse containerShip={type === 'CONTAINER'} />
             <CargoDeck type={type} />
             <Forecastle />

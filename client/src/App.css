@@ -604,6 +604,16 @@
   inset: 0;
 }
 
+.blueprint-propeller-blade {
+  transform-box: fill-box;
+  transform-origin: center bottom;
+  transform: rotateY(22deg) rotateX(calc(var(--blade-phase) * 1turn));
+}
+
+.blueprint-propeller-wake {
+  display: none;
+}
+
 .blueprint-zone {
   position: absolute;
   inset-block: 0;
@@ -1285,6 +1295,40 @@
 }
 
 @media (prefers-reduced-motion: no-preference) {
+  @keyframes blueprint-propeller-turn {
+    from { transform: rotateY(22deg) rotateX(0turn); fill: #7897a5; }
+    25% { fill: #91acb7; }
+    75% { fill: #456577; }
+    to { transform: rotateY(22deg) rotateX(1turn); fill: #7897a5; }
+  }
+
+  .blueprint-propeller-blade {
+    --turn-time: 1.8s;
+    animation: blueprint-propeller-turn var(--turn-time) linear infinite;
+    animation-delay: calc(-1 * var(--blade-phase) * var(--turn-time));
+  }
+
+  .blueprint-propeller[data-running="false"] .blueprint-propeller-blade {
+    animation-play-state: paused;
+  }
+
+  @keyframes blueprint-propeller-bubble {
+    from { opacity: 0; transform: translate(0) scale(.65); }
+    16% { opacity: .7; }
+    65% { opacity: .55; }
+    to { opacity: 0; transform: translate(-56px, var(--bubble-rise)) scale(1.2); }
+  }
+
+  .blueprint-propeller-wake {
+    display: inline;
+  }
+
+  .blueprint-propeller-wake circle {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: blueprint-propeller-bubble 2s linear infinite;
+  }
+
   @keyframes blueprint-radar-turn {
     from { transform: rotateY(0turn); fill: #adc7d2; }
     50% { transform: rotateY(.5turn); fill: #688b9c; }
