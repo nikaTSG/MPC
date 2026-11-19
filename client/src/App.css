@@ -1217,6 +1217,18 @@
 }
 
 @media (prefers-reduced-motion: no-preference) {
+  @keyframes blueprint-radar-turn {
+    from { transform: rotateY(0turn); fill: #adc7d2; }
+    50% { transform: rotateY(.5turn); fill: #688b9c; }
+    to { transform: rotateY(1turn); fill: #adc7d2; }
+  }
+
+  .blueprint-radar-array {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: blueprint-radar-turn 3s linear infinite;
+  }
+
   .dashboard-views[data-view-indicator]::after {
     transition: transform 230ms cubic-bezier(0.22, 1, 0.36, 1), width 230ms cubic-bezier(0.22, 1, 0.36, 1);
   }

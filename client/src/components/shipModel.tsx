@@ -17,11 +17,12 @@ interface VesselBlueprintProps {
 }
 
 const hullDeck = 'M57 185 L102 182 L126 174 H678 Q726 174 756 164 L883 150';
+// The counter rises over the common single-screw stern gear on each illustrative profile.
 const hullProfiles: Record<VesselCategory, string> = {
-  CONTAINER: 'L844 217 Q832 235 817 245 Q857 250 856 262 Q853 277 816 278 H179 Q152 278 134 260 L104 229 L76 218 Z',
-  BULK_CARRIER: 'L859 211 L840 244 Q871 250 866 265 Q862 281 820 282 H159 Q131 282 114 261 L70 216 Z',
-  TANKER: 'Q877 183 861 219 L852 235 Q879 240 877 258 Q877 282 836 284 H154 Q118 284 108 259 L95 229 L65 221 Z',
-  GENERAL_CARGO: 'L846 219 Q816 272 784 275 H180 Q156 275 133 253 L105 232 L78 223 Z',
+  CONTAINER: 'C873 179 854 212 850 228 C846 241 863 242 864 252 C866 268 838 278 811 278 H178 Q153 278 136 260 Q118 232 99 229 L76 225 Q61 222 60 211 Z',
+  BULK_CARRIER: 'C876 178 863 208 858 227 C854 242 869 244 869 257 Q868 280 818 282 H163 Q145 280 132 259 Q118 233 98 229 L76 225 Q62 223 60 213 Z',
+  TANKER: 'C882 179 872 211 870 229 C868 242 880 242 880 254 Q881 280 835 284 H160 Q138 284 128 258 Q115 231 98 229 L75 225 Q61 224 60 212 Z',
+  GENERAL_CARGO: 'L848 213 Q818 272 784 275 H172 Q152 275 135 256 Q119 234 99 229 L76 225 Q62 221 60 210 Z',
 };
 
 const frame = { left: 34, width: 872, top: 52, height: 246 };
@@ -38,19 +39,86 @@ function healthColor(value: number) {
   return '#8fe0ca';
 }
 
+function Deckhouse({ containerShip }: { containerShip: boolean }) {
+  return (
+    <g>
+      <path d="M99 184v-24h13v-12h106l10 9v19z" fill="#142d40" />
+      <path d="M114 150l-5-31 17-3 10 34z" fill="#1d3b4b" />
+      <path d="M109 119l-1-5 17-3 1 5z" fill="#0a1925" />
+      <path d="M115 126l12-2m-11 5 12-2" strokeOpacity=".65" />
+      <path d="M130 174v-34h13v-18h88v53" fill="#142e41" />
+      <path d="M128 143h104m-105 15h105" stroke="#739caf" />
+      {[150, 166, 182, 198, 214].map(x => (
+        <g key={x} fill="#527b90" stroke="none">
+          <rect x={x} y="131" width="5" height="4" rx=".6" />
+          <rect x={x} y="148.5" width="5" height="4" rx=".6" />
+        </g>
+      ))}
+      <g transform={containerShip ? 'translate(0 -8)' : undefined}>
+        {containerShip && <path d="M140 132v-12h91v12m-91-4h91" fill="#162f41" />}
+        <path d="M137 123l4-15h96l-4 15z" fill="#19384b" />
+        <path d="M143 110h88l-2 8h-88z" fill="#365d72" />
+        <path d="M158 110l-1 8m17-8-1 8m18-8-1 8m17-8-1 8m17-8-2 8" stroke="#152f42" />
+        <path d="M136 107h103m-103 17h102" stroke="#8fb3c3" />
+        {/* Only the open array turns. The spindle stays visible when the array is end-on. */}
+        <path d="M166 106l7-23h6l9 23m-18-12h13m-15 11 14-12" stroke="#87adbd" />
+        <path d="M169 83h14v3h-14zm5-1v-7h5v7z" fill="#345366" />
+        <path className="blueprint-radar-array" d="M158.5 75l36-2v3l-36 2z" fill="#adc7d2" stroke="#83a8b9" strokeWidth=".8" />
+        <path d="M208 107v-5h8v5m-10-5a6 6 0 0 1 12 0z" fill="#7f9cac" />
+      </g>
+      <path d="M106 178v-11h5v11m9-11h5v7h-5z" strokeOpacity=".7" />
+    </g>
+  );
+}
+
+function SternGear() {
+  return (
+    <g>
+      {/* The shaft exits forward of the screw. The rudder stock enters the counter aft of it. */}
+      <path d="M76 221h5v21h-5z" fill="#526d7c" />
+      <path d="M68 238l17-3q4 0 4 4l-3 22-5 9H63l2-18z" fill="#234152" />
+      <path d="M81 238l-3 28" stroke="#608496" strokeWidth=".8" />
+      <path d="M102 248l34-1v6l-34-1z" fill="#57788a" />
+      <path d="M99 249q1-8 8-14 4-1 2 4l-6 11zm2 4q-1 7-7 13-4 1-2-4l5-10z"
+        fill="#304e61" stroke="#7697a8" strokeWidth="1" />
+      <path d="M100 248c-2-5-9-12-8-16q1-4 5-1c5 4 8 11 8 17z
+               M101 252c4 4 10 11 9 17q-2 4-5 1c-5-6-7-12-8-18z" fill="#698795" stroke="#a6bec8" />
+      <path d="M95 248q3-3 10-1l2 2v3l-3 2q-7 0-11-3z" fill="#a4b7bb" />
+    </g>
+  );
+}
+
+function Forecastle() {
+  return (
+    <g>
+      <path d="M750 167l6-7v-6l111-12 14 9z" fill="#193446" />
+      <g transform="translate(757 154) rotate(-6)">
+        <path d="M22 0v-3h21v3m-19-3 3-7h8l5 7" fill="#304d5e" />
+        <circle cx="31" cy="-9" r="5.5" fill="#203b4d" />
+        <circle cx="31" cy="-9" r="2" />
+        <path d="M35-12l31 10 14 1" stroke="#91a8b4" />
+        <path d="M63 0v-5l3-2h6l4 7m13 0v-5h3v5m7 0v-5h3v5" fill="#294353" />
+        <path d="M0-7h19m27 0h62M0-3h19m27 0h62M1 0v-7m12 7v-7m33 7v-7m16 7v-7m16 7v-7m16 7v-7m13 7v-7"
+          stroke="#88a9b8" strokeWidth=".9" />
+      </g>
+    </g>
+  );
+}
+
 function CargoDeck({ type }: { type?: string }) {
   if (type === 'CONTAINER') {
     return (
       <g strokeWidth="1">
-        {[252, 323, 394, 465, 536, 607, 678].map((x, bay) => (
-          <g key={x}>
-            {[0, 1, 2, 3].slice(0, bay === 0 || bay === 6 ? 2 : bay === 1 || bay === 5 ? 3 : 4)
-              .map((tier) => (
-                <g key={tier}>
-                  <rect x={x} y={161 - tier * 17} width="63" height="13" rx="1" fill={tier % 2 ? '#15384d' : '#11283d'} />
-                  <path d={`M${x + 6} ${164 - tier * 17}v7m51-7v7`} strokeOpacity=".5" />
-                </g>
-              ))}
+        <path d="M248 174v-5h494v5" fill="#294358" />
+        {[2, 3, 4, 4, 4, 3, 2].map((tiers, bay) => (
+          <g key={bay} transform={`translate(${252 + bay * 71} 169)`}>
+            {Array.from({ length: tiers }, (_, tier) => (
+              <g key={tier} transform={`translate(0 ${-14.5 * (tier + 1)})`}>
+                <rect width="65" height="14" rx=".5" fill={tier % 2 ? '#173549' : '#112b3e'} />
+                <path d="M5 2v10m8-10v10m8-10v10m8-10v10m8-10v10m8-10v10m8-10v10m7-10v10"
+                  stroke="#42657a" strokeWidth=".75" />
+              </g>
+            ))}
           </g>
         ))}
       </g>
@@ -60,12 +128,22 @@ function CargoDeck({ type }: { type?: string }) {
   if (type === 'TANKER') {
     return (
       <g>
-        <path d="M242 174v-13h476v13M251 156h455m-455-7h409q14 0 14 8v3" />
-        <path d="M422 148v-26h40v26m-30-26v-10m20 10v-10m-104 45v-18h21v18m158 0v-18h21v18" />
-        {[299, 385, 499, 576, 644].map((x) => (
-          <path key={x} d={`M${x} 162v-26m-6 0h12`} strokeOpacity=".8" />
+        {/* Pipe runs stand on saddles beside the central loading manifold and hose crane. */}
+        <path d="M247 166h472m-472-4h468m-462-4h452" stroke="#80a2b2" />
+        {[262, 327, 392, 457, 522, 587, 652, 705].map(x => (
+          <path key={x} d={`M${x} 174v-15m-3 0h9v4`} strokeWidth="1.2" />
         ))}
-        <path d="M474 160v-24l62-15v7l-54 19M540 127v26" />
+        {[288, 371, 573, 656].map(x => (
+          <g key={x} transform={`translate(${x} 173)`}>
+            <path d="M-4 0v-3h10v3m-6-3v-17h3v17" fill="#244356" />
+            <path d="M-2-20l2-5h4l2 5z" fill="#456475" />
+          </g>
+        ))}
+        {[454, 466, 478].map(x => (
+          <path key={x} d={`M${x} 162v-16q0-4 4-4h4v5h-2v15m1-22v9`} fill="#224154" />
+        ))}
+        <path d="M504 169v-23h8v23m-10-23v-7h12l4 5-6 4z" fill="#2e4d61" />
+        <path d="M514 141l44-11 2 3-43 16zM556 134v11" fill="#27475a" />
       </g>
     );
   }
@@ -73,12 +151,19 @@ function CargoDeck({ type }: { type?: string }) {
   if (type === 'GENERAL_CARGO') {
     return (
       <g>
-        <path d="M259 174v-23h101v23m40 0v-28h133v28m40 0v-20h137v20" fill="#122c40" />
-        <path d="M271 158h77m65-5h106m68 8h109" strokeOpacity=".5" />
-        {[373, 547].map((x) => (
-          <g key={x}>
-            <path d={`M${x - 4} 174v-72h8v72m-8-63l-71 27m71-35l-71 35m0 0v13`} fill="#15354a" />
-            <circle cx={x - 75} cy="152" r="2" fill="#e1b980" stroke="none" />
+        {[{ x: 248, width: 133 }, { x: 403, width: 153 }, { x: 581, width: 143 }].map(({ x, width }) => (
+          <g key={x} transform={`translate(${x} 174)`}>
+            <path d={`M0 0v-11h${width}V0m-${width + 2}-12h${width + 4}`} fill="#193446" />
+            <path d={`M${width / 2} -12v7`} strokeOpacity=".7" />
+          </g>
+        ))}
+        {[391, 568].map(x => (
+          <g key={x} transform={`translate(${x} 174)`}>
+            <path d="M-7 0v-4h14v4m-10-4v-62h5v62" fill="#254458" />
+            <path d="M-4-17l-75-35-2 3 77 39z" fill="#34576a" />
+            <path d="M-1-65l-78 14m-1 2v26" stroke="#8caab8" strokeWidth="1" />
+            <path d="M-81-23h3v4h-3zm2 4q1 4-3 3" strokeWidth=".9" />
+            <path d="M5-6h9v6H5z" fill="#2c4c5e" />
           </g>
         ))}
       </g>
@@ -89,18 +174,19 @@ function CargoDeck({ type }: { type?: string }) {
 
   return (
     <g>
-      {[246, 344, 442, 540, 638].map((x) => (
-        <g key={x}>
-          <path d={`M${x} 174v-13l8-8h72l8 8v13`} fill="#122c40" />
-          <path d={`M${x + 8} 161h72m-54 0v13m36-13v13`} strokeOpacity=".55" />
+      {[241, 340, 439, 538, 637].map(x => (
+        <g key={x} transform={`translate(${x} 174)`}>
+          <path d="M2 0v-8h81v8m-84-8 3-4h79l4 4z" fill="#1c384a" />
+          <path d="M29-12v4m26-4v4" strokeOpacity=".7" />
         </g>
       ))}
-      {[333, 431, 529, 627].map((x) => (
-        <g key={x}>
-          <path d={`M${x} 174v-39h8v39m-12-40h15v-7h-15z`} fill="#15354a" />
-          <path d={`M${x + 7} 128l48-26 3 5-51 29z`} fill="#1c4156" />
-          <path d={`M${x + 57} 105v34`} strokeOpacity=".6" />
-          <circle cx={x + 57} cy="141" r="2" fill="#e1b980" stroke="none" />
+      {[332, 431, 530, 629].map(x => (
+        <g key={x} transform={`translate(${x} 174)`}>
+          <path d="M-6 0v-4h12v4m-10-4v-26h8v26m-10-26v-11l4-4h11l5 7v8z" fill="#28485b" />
+          <path d="M4-42h5l3 5H4z" fill="#7294a5" strokeWidth=".7" />
+          <path d="M7-34l60-27 3 3-59 31z" fill="#34586b" />
+          <path d="M-3-44l69-18m3 4v27" stroke="#87a8b7" strokeWidth=".9" />
+          <path d="M68-31h3v4h-3zm2 4q1 4-3 3" strokeWidth=".9" />
         </g>
       ))}
     </g>
@@ -150,17 +236,10 @@ export default function VesselBlueprint({ vessel, sections, selectedSection, onS
           </defs>
 
           <g fill="none" stroke="#5c96ad" strokeWidth="1.35" strokeLinejoin="round" strokeLinecap="round">
-            <path d="M103 180v-25h22v-24h16l8-27h78l12 18v52M145 118h89M132 144h107M130 156h109"
-              fill="#132a3d" />
-            <path d="M153 109h67l7 8h-76z" fill="#28556c" />
-            <path d="M156 131h6m7 0h6m7 0h6m7 0h6m7 0h6m7 0h6M162 104V77m-11 11h58M191 104V69m-8 14h16"
-              stroke="#95c3d6" />
-            <circle cx="191" cy="69" r="2.5" fill="#e1b980" stroke="none" />
-            <path d="M110 149l-4-28h16l3 28M105 126h17M75 214v36l6 4v-34M122 247l-24 5m-6-9 6 9-3 10m3-10 8 6"
-              strokeOpacity=".8" />
+            <SternGear />
+            <Deckhouse containerShip={type === 'CONTAINER'} />
             <CargoDeck type={type} />
-            <path d="M758 163l14-15 65-6 17 11M792 146v-29m-10 11h20M828 143v-40m-11 12h22" />
-            <circle cx="828" cy="103" r="2.3" fill="#95c3d6" stroke="none" />
+            <Forecastle />
           </g>
 
           <path d={outline} fill={`url(#${steel})`} stroke="#83b5c9" strokeWidth="1.7" />
@@ -168,8 +247,10 @@ export default function VesselBlueprint({ vessel, sections, selectedSection, onS
             <rect x={selected.left} y="148" width={selected.right - selected.left} height="140" fill="#58bbeb" fillOpacity=".17" />
             <path d="M50 186H891M50 266H891" stroke="#476a81" strokeWidth="1" strokeOpacity=".65" />
             <path d="M287 150v136m384-136v136" stroke="#83a9bc" strokeOpacity=".65" strokeDasharray="3 5" />
-            <path d="M167 270v14m37-14v14m37-14v14m85-14v14m37-14v14m37-14v14m37-14v14m37-14v14m37-14v14m37-14v14m37-14v14m37-14v14m91-14v14m37-14v14m37-14v14"
-              stroke="#436a81" strokeOpacity=".55" />
+            <g transform="translate(848 168) rotate(23)" stroke="#7699ac" strokeWidth="1.2">
+              <ellipse cy="-4" rx="5" ry="3.5" fill="#0c1b28" />
+              <path d="M-1-4h2v11h-2zM-6 1l4 4h4l5-5-1 6-4 4h-5l-4-5z" fill="#617e8e" />
+            </g>
           </g>
           <path d={outline} clipPath={`url(#${selectedClip})`} fill="none" stroke="#73cff5" strokeWidth="2.6" />
         </svg>
