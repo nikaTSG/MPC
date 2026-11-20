@@ -1,18 +1,18 @@
 # MPC
  ### The Problem
 
-All marinetime corporations suffer from a basic worldwide problem: too many levels of communication.
+All maritime corporations suffer from a basic worldwide problem: too many levels of communication.
 
  ### Our Solution
 
- The **M.P.C.** (short for: Maintance Planner and Communicator) is a software run direclty in the web browser for marinetime corporations. Its main purpose is for keeping track with a vessel's condition by communicating with the ships mechanical team, at the same time it communicates with the partnered suppliers to order spare parts. Then it plans the most efficient route to a port for repairs.
+ The **M.P.C.** (short for: Maintance Planner and Communicator) is a software run directly in the web browser for maritime corporations. Its main purpose is for keeping track with a vessel's condition by communicating with the ship's mechanical team, at the same time it communicates with the partnered suppliers to order spare parts. Then it plans the most efficient route to a port for repairs.
 
  ## Features 
  
- - Keeping a general ship condition with analogical percentage for each part of the ship.
+ - Keeping a general ship condition with real time health percentage for each part of the ship.
  - Automatically receiving and sending emails to communicate with each ship's mechanical team, part suppliers and ports.
  - Uses HITL (Human-in-the-loop) so the user/team can approve and edit the draft emails.
- - Tracking each vessels position on the global map.
+ - Tracking each vessel's position on the global map.
 
 
 
