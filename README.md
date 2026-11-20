@@ -35,7 +35,7 @@ Make sure Git and Docker Compose are installed. Clone the repository and start t
 ```sh
 git clone https://github.com/nikaTSG/MPC.git
 cd MPC
-docker compose up --build
+sudo docker compose up --build
 ```
 
 
