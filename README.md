@@ -87,4 +87,3 @@ This starts both the web app and API server. Open [http://localhost:5173](http:/
 
 To use AI features, enter an API key in the dashboard's AI settings. Supplier email uses a demo inbox by default; configure SMTP settings in `server/.env` to send through your own mail server.
 
-## Tutorial 
