@@ -43,7 +43,9 @@ git clone https://github.com/nikaTSG/MPC.git
 cd MPC
 sudo docker compose up --build
 ```
-![Fleet Map Walkthrough](<img src="./client/public/tutorial3.gif" alt="Demo" width="450" />) 
+<p align="center">
+  <img src="./public/your-gif.gif" alt="Tutorial" width="500" />
+</p>
 
 ### Other ways to install
 Clone the repository and install the frontend and backend dependencies:
