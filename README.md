@@ -29,7 +29,7 @@ All maritime corporations suffer from a basic worldwide problem: too many levels
    - React -> frontend
    - Express.js -> backend
    - FastAPI -> Python document-reader service
-
+   - SQLite/prisma -> database
 ![Fleet Map Walkthrough](./client/public/tutorial2.gif) 
 
 
