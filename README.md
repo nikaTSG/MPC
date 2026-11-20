@@ -8,6 +8,8 @@ All maritime corporations suffer from a basic worldwide problem: too many levels
  The **M.P.C.** (short for: Maintance Planner and Communicator) is a software run directly in the web browser for maritime corporations. Its main purpose is for keeping track with a vessel's condition by communicating with the ship's mechanical team, at the same time it communicates with the partnered suppliers to order spare parts. Then it plans the most efficient route to a port for repairs.
 
  https://github.com/nikaTSG/MPC/client/public/phone_test4.mp4
+ https://github.com/nikaTSG/MPC/blob/main/client/public/phone_test4.MP4
+ 
  
 
  ## Features 
