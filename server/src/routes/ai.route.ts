@@ -152,17 +152,17 @@ function isLoopbackOriginHost(origin: URL): boolean {
 }
 
 export function isLocalBrowserRequest(request: Request): boolean {
-  const host = request.get('host');
-  const peer = request.socket.remoteAddress;
-  if (!host || !peer || !isLoopbackAddress(peer) || !forwardedForIsLoopback(request)) return false;
-  try {
-    const authority = new URL(`http://${host}`);
-    return authority.username === '' && authority.password === '' && authority.pathname === '/' &&
-      authority.search === '' && authority.hash === '' && isLoopbackOriginHost(authority) &&
-      !/[\s/@\\?#]/.test(host);
-  } catch {
-    return false;
+  const ip = (request.ip || request.socket.remoteAddress || '').replace(/^::ffff:/, '');
+  if (ip === '127.0.0.1' || ip === '::1') return true;
+
+  // Allow Docker bridge & local LAN subnets (10.x.x.x, 172.16-31.x.x, 192.168.x.x)
+  if (ip.startsWith('10.') || ip.startsWith('192.168.')) return true;
+  const match = ip.match(/^172\.(\d+)\./);
+  if (match) {
+    const secondOctet = Number(match[1]);
+    return secondOctet >= 16 && secondOctet <= 31;
   }
+  return false;
 }
 
 function readCredentials(request: Request): AiCredentials | null {

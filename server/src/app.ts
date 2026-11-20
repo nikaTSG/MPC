@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import express from 'express';
 import cors from 'cors';
 import { db } from '../prisma/db.js';
@@ -47,6 +49,22 @@ app.get('/api/health', async (_req, res, next) => {
 });
 
 app.use('/api/v1', apiRoutes);
+
+if (process.env.NODE_ENV === 'production') {
+  const clientDistPath = process.env.CLIENT_DIST_PATH
+    ? path.resolve(process.env.CLIENT_DIST_PATH)
+    : path.resolve(process.cwd(), '../client/dist');
+
+  if (fs.existsSync(clientDistPath)) {
+    app.use(express.static(clientDistPath));
+
+    app.use((req, res, next) => {
+      if (req.method !== 'GET' || req.path.startsWith('/api')) return next();
+      res.sendFile(path.join(clientDistPath, 'index.html'));
+    });
+  }
+}
+
 //app.use(errorHandler);
 
 export default app;
