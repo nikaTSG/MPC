@@ -7,8 +7,7 @@ All maritime corporations suffer from a basic worldwide problem: too many levels
 
  The **M.P.C.** (short for: Maintance Planner and Communicator) is a software run directly in the web browser for maritime corporations. Its main purpose is for keeping track with a vessel's condition by communicating with the ship's mechanical team, at the same time it communicates with the partnered suppliers to order spare parts. Then it plans the most efficient route to a port for repairs.
 
- https://github.com/nikaTSG/MPC/blob/main/client/public/phone_test4.MP4
- 
+![Fleet Map Walkthrough](./client/public/tutorial.gif) 
  
 
  ## Features 
@@ -18,7 +17,7 @@ All maritime corporations suffer from a basic worldwide problem: too many levels
  - Uses HITL (Human-in-the-loop) so the user/team can approve and edit the draft emails.
  - Tracking each vessel's position on the global map.
 
-https://github.com/nikaTSG/MPC/client/public/test1_video.mp4
+![Fleet Map Walkthrough](./client/public/tutorial1.gif) 
 
  ## Tech Stack
 
@@ -31,7 +30,7 @@ https://github.com/nikaTSG/MPC/client/public/test1_video.mp4
    - Express.js -> backend
    - FastAPI -> Python document-reader service
 
-https://github.com/nikaTSG/MPC/client/public/test2_video.mp4
+![Fleet Map Walkthrough](./client/public/tutorial2.gif) 
 
 
 ## Download and Run
@@ -44,7 +43,7 @@ git clone https://github.com/nikaTSG/MPC.git
 cd MPC
 sudo docker compose up --build
 ```
-https://github.com/nikaTSG/MPC/client/public/test3_video.mp4
+![Fleet Map Walkthrough](./client/public/tutorial3.gif) 
 
 ### Other ways to install
 Clone the repository and install the frontend and backend dependencies:
