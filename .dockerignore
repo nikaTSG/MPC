@@ -1,0 +1,12 @@
+.git
+.gitignore
+README.md
+**/node_modules
+**/dist
+**/.env
+**/.env.*
+server/prisma/*.db.local
+server/prisma/*.db-journal
+server/prisma/*.db-wal
+server/prisma/*.db-shm
+client/public/Screenshot*
