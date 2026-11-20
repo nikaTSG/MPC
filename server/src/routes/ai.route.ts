@@ -132,14 +132,11 @@ export function isAuthorizedBrowserPost(request: Request): boolean {
   const origin = sameOrigin(request);
   if (!origin) return false;
 
-  const remoteAddress = request.socket.remoteAddress;
-  const loopbackPeer =
-    typeof remoteAddress === 'string' &&
-    isLoopbackAddress(remoteAddress);
+  const localPeer = isLocalBrowserRequest(request);
 
-  if (origin.protocol === 'https:') return isEncryptedSocket(request) || loopbackPeer;
+  if (origin.protocol === 'https:') return isEncryptedSocket(request) || localPeer;
   return (
-    loopbackPeer &&
+    localPeer &&
     forwardedForIsLoopback(request) &&
     isLoopbackOriginHost(origin) &&
     !isEncryptedSocket(request)

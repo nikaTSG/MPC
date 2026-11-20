@@ -1,0 +1,2 @@
+*.sh text eol=lf
+##added for windows support althought not needed for linux

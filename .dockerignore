@@ -1,10 +1,16 @@
 .git
 .gitignore
 README.md
+
 **/node_modules
 **/dist
+**/.venv*
+**/__pycache__
+
 **/.env
 **/.env.*
+!**/.env.example
+
 server/prisma/*.db.local
 server/prisma/*.db-journal
 server/prisma/*.db-wal
