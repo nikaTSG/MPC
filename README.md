@@ -44,7 +44,7 @@ cd MPC
 sudo docker compose up --build
 ```
 <p align="center">
-  <img src="./client/public/tutorial3.gif" alt="Live Fleet Map" width="500" />
+  <img src="./client/public/tutorial3.gif" alt="Live Fleet Map" width="250" />
 </p>
 
 ### Other ways to install
